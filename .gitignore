@@ -39,3 +39,17 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# python & virtual environments
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite3
+*.db
+
+# raw heavy ML datasets (GitHub 100MB limit)
+backend/ml/data/raw/*.csv
+backend/data/*.csv
+backend/*.db
