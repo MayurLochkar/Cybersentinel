@@ -1,9 +1,13 @@
 "use client";
 import React, { useState } from "react";
+import dynamic from "next/dynamic";
 import { Hero } from "@/components/hero";
 import { FocusCards } from "@/components/ui/focus-cards";
 import { FeaturesSection } from "@/components/features-section";
-import { CyberPreloader } from "@/components/ui/preloader";
+const CyberPreloader = dynamic(
+  () => import("@/components/ui/preloader").then((mod) => mod.CyberPreloader),
+  { ssr: false }
+);
 import { FloatingDock } from "@/components/ui/floating-dock";
 import { Carousel, AppleCard } from "@/components/ui/apple-cards-carousel";
 import { FollowerPointerCard } from "@/components/ui/following-pointer";
@@ -228,7 +232,7 @@ export default function Home() {
 
       {/* Non-Blocking Fixed Cursor with Target Crosshair */}
       <FollowerPointerCard title="Security Analyst (You)">
-        <div className="min-h-screen bg-[#eef3f8] selection:bg-cyan-200 selection:text-cyan-900 relative">
+        <div className="min-h-screen bg-[#eef3f8] selection:bg-[#BFE9FF] selection:text-[#6F3DFF] relative">
           {/* Hero Section with Floating Curved Capsule Navbar */}
           <section id="hero" className="relative">
             <Hero
@@ -239,13 +243,13 @@ export default function Home() {
 
           {/* Quick Launch Banner Bar */}
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6 mb-16">
-            <div className="neu-flat rounded-3xl p-6 md:p-8 border border-white flex flex-col md:flex-row items-center justify-between gap-6 bg-gradient-to-r from-blue-50/80 via-white to-cyan-50/80 shadow-xl">
+            <div className="neu-flat rounded-3xl p-6 md:p-8 border border-[#B7B7B7]/40 flex flex-col md:flex-row items-center justify-between gap-6 bg-gradient-to-r from-[#6F3DFF]/8 via-white to-[#BFE9FF]/15 shadow-xl">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-600 to-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/25 shrink-0">
-                  <Sparkles className="w-6 h-6" />
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#6F3DFF] via-[#855bff] to-[#BFE9FF] text-white flex items-center justify-center shadow-md shadow-[#6F3DFF]/25 shrink-0 border border-white/50">
+                  <Sparkles className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-blue-600 font-mono">LIVE PROTOTYPE CONSOLE</div>
+                  <div className="text-xs font-bold text-[#6F3DFF] font-mono">LIVE PROTOTYPE CONSOLE</div>
                   <div className="text-sm md:text-base font-extrabold text-slate-900 mt-0.5">
                     Ready to test all 11 SOC investigation modules with realistic threat telemetry?
                   </div>
@@ -255,10 +259,10 @@ export default function Home() {
               <div className="flex items-center gap-3 shrink-0">
                 <button
                   onClick={() => setInDashboard(true)}
-                  className="px-6 py-3 rounded-full bg-[#1e2330] hover:bg-black text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-slate-900/20 active:scale-95 transition-all"
+                  className="px-6 py-3 rounded-full bg-gradient-to-r from-[#6F3DFF] to-[#4e19d9] hover:from-[#7c4dff] hover:to-[#5c24e6] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#6F3DFF]/30 active:scale-95 transition-all border border-[#BFE9FF]/30"
                 >
                   <span>Enter SOC Console</span>
-                  <ArrowRight className="w-4 h-4" />
+                  <ArrowRight className="w-4 h-4 text-[#BFE9FF]" />
                 </button>
               </div>
             </div>
@@ -270,7 +274,7 @@ export default function Home() {
           {/* Threat Scenarios with Infinite Marquee Effect (User's specific request) */}
           <section id="scenarios" className="py-20 overflow-hidden relative">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-10 text-center">
-              <span className="px-3.5 py-1.5 rounded-full neu-flat-sm text-[11px] font-bold text-blue-600 uppercase tracking-wider font-mono">
+              <span className="px-3.5 py-1.5 rounded-full neu-flat-sm text-[11px] font-bold text-[#6F3DFF] uppercase tracking-wider font-mono border border-[#B7B7B7]/40">
                 Aceternity Focus Cards &bull; Infinite Marquee Stream
               </span>
               <h2 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight mt-3">
@@ -296,7 +300,7 @@ export default function Home() {
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
               <div className="flex flex-col md:flex-row md:items-end justify-between mb-6">
                 <div>
-                  <span className="px-3.5 py-1.5 rounded-full neu-flat-sm text-[11px] font-bold text-cyan-700 uppercase tracking-wider font-mono">
+                  <span className="px-3.5 py-1.5 rounded-full neu-flat-sm text-[11px] font-bold text-[#6F3DFF] uppercase tracking-wider font-mono border border-[#B7B7B7]/40">
                     Enterprise Capabilities
                   </span>
                   <h2 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight mt-3">

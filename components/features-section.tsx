@@ -10,6 +10,8 @@ import {
   ArrowRight,
   Sparkles,
   Zap,
+  Terminal,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -19,15 +21,16 @@ const FEATURES = [
     title: "ML Threat Detection",
     badge: "RANDOM FOREST v2.4",
     icon: Cpu,
-    iconColor: "text-cyan-600",
-    iconBg: "bg-cyan-50",
-    glowColor: "rgba(6,182,212,0.15)",
+    iconColor: "text-[#6F3DFF]",
+    iconBg: "bg-[#6F3DFF]/10",
+    glowColor: "rgba(111,61,255,0.2)",
+    accentGradient: "from-[#6F3DFF] to-[#8b5cf6]",
     tagline: "Multivariate Flow Analysis with 96.4% Precision",
     description:
       "Continuously evaluates network flow sequences, inter-arrival times, payload entropies, and connection velocity to detect credential stuffing, volumetric reflection floods, and stealthy SYN sweeps before payload detonation.",
     metrics: [
-      { label: "Accuracy", value: "96.4%", color: "text-cyan-700" },
-      { label: "Recall Rate", value: "94.9%", color: "text-blue-700" },
+      { label: "Accuracy", value: "96.4%", color: "text-[#6F3DFF]" },
+      { label: "Recall Rate", value: "94.9%", color: "text-[#2563eb]" },
       { label: "False Positive", value: "3.2%", color: "text-emerald-700" },
     ],
     preview: {
@@ -46,16 +49,17 @@ const FEATURES = [
     title: "Autonomous AI Forensics",
     badge: "MITRE ATT&CK v14.1",
     icon: BrainCircuit,
-    iconColor: "text-indigo-600",
-    iconBg: "bg-indigo-50",
-    glowColor: "rgba(99,102,241,0.15)",
+    iconColor: "text-[#6F3DFF]",
+    iconBg: "bg-[#6F3DFF]/10",
+    glowColor: "rgba(191,233,255,0.25)",
+    accentGradient: "from-[#6F3DFF] via-[#855bff] to-[#BFE9FF]",
     tagline: "Contextual Investigation & Plain-English Explanations",
     description:
       "Bridges the gap between raw alerts and human understanding. Autonomous agentic steps correlate indicators with known adversary tactics (T1110, T1498), assess attack vectors, and formulate immediate tactical remediation advice.",
     metrics: [
-      { label: "Investigation Time", value: "< 2 min", color: "text-indigo-700" },
-      { label: "MITRE Coverage", value: "100%", color: "text-purple-700" },
-      { label: "Findings Clarity", value: "L3 Grade", color: "text-cyan-700" },
+      { label: "Investigation Time", value: "< 2 min", color: "text-[#6F3DFF]" },
+      { label: "MITRE Coverage", value: "100%", color: "text-[#2563eb]" },
+      { label: "Findings Clarity", value: "L3 Grade", color: "text-[#6F3DFF]" },
     ],
     preview: {
       header: "7-Stage Investigation Matrix",
@@ -76,6 +80,7 @@ const FEATURES = [
     iconColor: "text-emerald-600",
     iconBg: "bg-emerald-50",
     glowColor: "rgba(16,185,129,0.15)",
+    accentGradient: "from-emerald-500 to-teal-500",
     tagline: "Tamper-Evident Chain of Custody for Forensic Artifacts",
     description:
       "Guarantees that raw authentication logs, memory dumps, and PCAP recordings have not been altered or purged. Every artifact is cryptographically hashed at the moment of capture with verifiable runtime verification.",
@@ -103,6 +108,7 @@ const FEATURES = [
     iconColor: "text-orange-600",
     iconBg: "bg-orange-50",
     glowColor: "rgba(249,115,22,0.15)",
+    accentGradient: "from-orange-500 to-red-500",
     tagline: "Context-Aware 0-100 Risk Prioritization",
     description:
       "Eliminates alert fatigue by synthesizing attack severity, classifier confidence, asset criticality, and external threat intelligence into a single, actionable score to direct tier-1 and tier-2 analyst triage where it matters most.",
@@ -154,13 +160,16 @@ export function FeaturesSection({
         transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
         className="text-center max-w-3xl mx-auto mb-16 space-y-3"
       >
-        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full neu-flat-sm text-[11px] font-mono font-bold text-blue-600 border border-white">
+        <motion.div
+          className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full neu-flat-sm text-[11px] font-mono font-bold text-blue-600 border border-white shimmer-border"
+          whileHover={{ scale: 1.03 }}
+        >
           <Sparkles className="w-3.5 h-3.5" />
           <span>CYBERSENTINEL-X CORE ARCHITECTURE</span>
-        </div>
+        </motion.div>
         <h2 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight">
           Next-Generation{" "}
-          <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-cyan-500">
+          <span className="cyber-gradient-text">
             Defense Pillars
           </span>
         </h2>
@@ -183,29 +192,42 @@ export function FeaturesSection({
             <motion.button
               key={feat.id}
               onClick={() => setActiveTab(idx)}
-              whileHover={{ y: -2, scale: 1.01 }}
+              whileHover={{ y: -3, scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
               className={cn(
-                "p-4 rounded-2xl text-left transition-all duration-300 border flex flex-col justify-between min-h-[110px] relative overflow-hidden",
+                "p-4 rounded-2xl text-left transition-all duration-300 border flex flex-col justify-between min-h-[110px] relative overflow-hidden group",
                 activeTab === idx
                   ? "neu-pressed bg-white text-blue-700 border-blue-300/60 shadow-inner"
                   : "neu-flat hover:bg-white text-slate-700 border-white/80"
               )}
             >
-              {/* Active indicator dot */}
+              {/* Active indicator glow */}
               {activeTab === idx && (
-                <motion.div
-                  layoutId="active-tab-indicator"
-                  className="absolute top-3 right-3 w-2 h-2 rounded-full bg-blue-500"
-                  style={{ boxShadow: "0 0 8px rgba(59,130,246,0.7)" }}
-                />
+                <>
+                  <motion.div
+                    layoutId="active-tab-indicator"
+                    className="absolute top-3 right-3 w-2.5 h-2.5 rounded-full"
+                    style={{
+                      background: `linear-gradient(135deg, ${feat.iconColor.includes("cyan") ? "#06b6d4" : feat.iconColor.includes("indigo") ? "#6366f1" : feat.iconColor.includes("emerald") ? "#10b981" : "#f97316"}, transparent)`,
+                      boxShadow: `0 0 12px ${feat.glowColor}`,
+                    }}
+                  />
+                  <motion.div
+                    layoutId="active-tab-bg"
+                    className="absolute inset-0 rounded-2xl pointer-events-none"
+                    style={{ background: `radial-gradient(ellipse at bottom right, ${feat.glowColor} 0%, transparent 70%)` }}
+                  />
+                </>
               )}
-              <div className="flex items-center gap-3">
-                <div className={cn("p-2 rounded-xl neu-flat-sm", feat.iconBg)}>
-                  <FeatIcon className={cn("w-4 h-4", feat.iconColor)} />
+              <div className="flex items-center gap-3 relative z-10">
+                <div className={cn(
+                  "p-2 rounded-xl transition-all duration-300",
+                  activeTab === idx ? `bg-gradient-to-tr ${feat.accentGradient} text-white shadow-md` : `neu-flat-sm ${feat.iconBg}`
+                )}>
+                  <FeatIcon className={cn("w-4 h-4", activeTab === idx ? "text-white" : feat.iconColor)} />
                 </div>
               </div>
-              <div>
+              <div className="relative z-10">
                 <div className="font-extrabold text-xs sm:text-sm tracking-tight text-slate-800 mt-2">
                   {feat.title}
                 </div>
@@ -236,12 +258,20 @@ export function FeaturesSection({
             }}
           />
 
+          {/* Decorative corner lines */}
+          <div className="absolute top-0 right-0 w-32 h-32 pointer-events-none">
+            <div className="absolute top-4 right-4 w-16 h-[1px] bg-gradient-to-l from-transparent to-cyan-500/20" />
+            <div className="absolute top-4 right-4 w-[1px] h-16 bg-gradient-to-t from-transparent to-cyan-500/20" />
+          </div>
+
           <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
             {/* Left: Text */}
             <div className="lg:col-span-7 space-y-6">
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
-                  <Icon className={cn("w-5 h-5", current.iconColor)} />
+                  <div className={cn("p-1.5 rounded-lg bg-gradient-to-tr", current.accentGradient)}>
+                    <Icon className="w-4 h-4 text-white" />
+                  </div>
                   <span className={cn("text-xs font-mono font-bold uppercase tracking-wider", current.iconColor)}>
                     {current.badge}
                   </span>
@@ -262,7 +292,7 @@ export function FeaturesSection({
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.07 }}
-                    className="neu-flat-sm rounded-xl p-3.5 bg-white/90 border border-white"
+                    className="neu-flat-sm rounded-xl p-3.5 bg-white/90 border border-white dash-card"
                   >
                     <div className={cn("text-xl sm:text-2xl font-black font-mono tracking-tight", m.color)}>
                       {m.value}
@@ -274,13 +304,21 @@ export function FeaturesSection({
                 ))}
               </div>
 
-              <button
+              <motion.button
                 onClick={onLaunchConsole}
-                className="group px-6 py-3 rounded-full bg-[#1e2330] hover:bg-black text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-slate-900/20 active:scale-95 transition-all"
+                className="group px-6 py-3 rounded-full bg-gradient-to-r from-[#6F3DFF] via-[#5c2ae8] to-[#4e19d9] hover:from-[#7c4dff] hover:to-[#5c24e6] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#6F3DFF]/30 active:scale-95 transition-all relative overflow-hidden border border-[#BFE9FF]/30"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
               >
-                <span>Launch in Live SOC Console</span>
-                <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" />
-              </button>
+                <span className="relative z-10">Launch in Live SOC Console</span>
+                <ArrowRight className="w-3.5 h-3.5 text-[#BFE9FF] group-hover:translate-x-1 transition-transform relative z-10" />
+                <motion.span
+                  className="absolute inset-0 bg-gradient-to-r from-transparent via-[#BFE9FF]/20 to-transparent"
+                  initial={{ x: "-100%" }}
+                  whileHover={{ x: "100%" }}
+                  transition={{ duration: 0.5 }}
+                />
+              </motion.button>
             </div>
 
             {/* Right: Dark preview terminal */}
@@ -291,15 +329,30 @@ export function FeaturesSection({
                 style={{ background: current.glowColor }}
               />
 
+              {/* Scanline effect */}
+              <motion.div
+                className="absolute left-0 right-0 h-px pointer-events-none"
+                style={{
+                  background: "linear-gradient(90deg, transparent, rgba(6,182,212,0.3), transparent)",
+                }}
+                animate={{ top: ["0%", "100%"] }}
+                transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+              />
+
               {/* Header */}
               <div className="relative flex items-center justify-between border-b border-slate-700/80 pb-3">
                 <div className="flex items-center gap-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse" />
-                  <span className="text-[11px] font-bold text-slate-200">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500/70" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/70" />
+                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500/70" />
+                  </div>
+                  <span className="text-[11px] font-bold text-slate-200 ml-2">
                     {current.preview.header}
                   </span>
                 </div>
-                <span className="text-[9px] text-emerald-400 bg-emerald-950/70 px-2 py-0.5 rounded border border-emerald-500/30">
+                <span className="text-[9px] text-emerald-400 bg-emerald-950/70 px-2 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1">
+                  <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
                   ACTIVE
                 </span>
               </div>
@@ -325,15 +378,19 @@ export function FeaturesSection({
               </div>
 
               {/* Terminal cmd */}
-              <div className="p-3 bg-black/60 rounded-xl border border-slate-800 space-y-1 text-[10px]">
-                <div className="text-cyan-400">
-                  $ cybersentinel-x core-check --module {current.preview.cmd}
+              <div className="p-3 bg-black/60 rounded-xl border border-slate-800 space-y-1.5 text-[10px]">
+                <div className="text-cyan-400 flex items-center gap-1.5">
+                  <Terminal className="w-3 h-3" />
+                  <span>$ cybersentinel-x core-check --module {current.preview.cmd}</span>
                 </div>
                 <div className="text-emerald-400">
                   ✓ Cryptographic checksum matched (0x8F91)
                 </div>
                 <div className="text-slate-300">
                   ✓ Real-time telemetry feed latency: 12ms
+                </div>
+                <div className="text-cyan-300/50 flex items-center gap-1">
+                  <span className="w-1.5 h-3 bg-cyan-400 animate-pulse" />
                 </div>
               </div>
             </div>

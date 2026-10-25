@@ -1,8 +1,10 @@
 "use client";
-import React from "react";
-import { X, CheckCircle2, ShieldCheck, FileCode, Copy, Check } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { X, CheckCircle2, AlertOctagon, AlertTriangle, ShieldCheck, FileCode, Copy, Check, RefreshCw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { EvidenceItem } from "@/data/cyberData";
+import { verifyEvidenceHash, ApiEvidenceVerifyResult } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 export function EvidenceModal({
   isOpen,
@@ -13,12 +15,54 @@ export function EvidenceModal({
   onClose: () => void;
   evidence: EvidenceItem | null;
 }) {
-  const [copied, setCopied] = React.useState(false);
+  const [copied, setCopied] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<ApiEvidenceVerifyResult | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen || !evidence) {
+      setVerifyResult(null);
+      return;
+    }
+
+    const currentEv = evidence;
+    let isMounted = true;
+    async function performLiveVerification() {
+      setIsVerifying(true);
+      try {
+        const result = await verifyEvidenceHash(currentEv.id);
+        if (isMounted) setVerifyResult(result);
+      } catch (err: any) {
+        if (isMounted) {
+          setVerifyResult({
+            evidence_id: currentEv.id,
+            file_name: currentEv.fileName,
+            stored_hash: currentEv.storedHash || currentEv.sha256,
+            current_hash: "VERIFICATION_ERROR",
+            verification_status: "ERROR",
+            message: `Backend verification endpoint error: ${err.message || err}`,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      } finally {
+        if (isMounted) setIsVerifying(false);
+      }
+    }
+
+    performLiveVerification();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, evidence]);
 
   if (!isOpen || !evidence) return null;
 
-  const copyHash = () => {
-    navigator.clipboard.writeText(evidence.sha256);
+  const currentDisplayHash = verifyResult ? verifyResult.current_hash : evidence.sha256;
+  const storedDisplayHash = verifyResult ? verifyResult.stored_hash : evidence.storedHash || evidence.sha256;
+  const status = verifyResult ? verifyResult.verification_status : evidence.verificationStatus;
+
+  const copyHash = (hashText: string) => {
+    navigator.clipboard.writeText(hashText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -35,12 +79,17 @@ export function EvidenceModal({
           {/* Header */}
           <div className="flex items-center justify-between pb-4 border-b border-slate-300">
             <div className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold">
+              <div className={cn(
+                "w-9 h-9 rounded-xl flex items-center justify-center font-bold",
+                status === "VERIFIED" ? "bg-emerald-100 text-emerald-600" : status === "TAMPERED" ? "bg-rose-100 text-rose-600" : "bg-amber-100 text-amber-600"
+              )}>
                 <ShieldCheck className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-slate-900">Evidence Cryptographic Verification</h3>
-                <span className="text-[11px] text-slate-500 font-mono">Immutable Artifact Integrity Check</span>
+                <h3 className="text-base font-bold text-slate-900">Live SHA-256 Evidence Verification</h3>
+                <span className="text-[11px] text-slate-500 font-mono">
+                  {isVerifying ? "Hashing disk bytes in real-time..." : "Disk Artifact Digest vs Forensic Ledger"}
+                </span>
               </div>
             </div>
             <button
@@ -70,46 +119,81 @@ export function EvidenceModal({
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-[10px] text-slate-500 font-mono font-bold uppercase">
-                    Stored Cryptographic Hash (Ledger)
+                    Stored Cryptographic Hash (Ledger Catalog)
                   </span>
                   <button
-                    onClick={copyHash}
+                    onClick={() => copyHash(storedDisplayHash)}
                     className="text-[10px] text-blue-600 hover:underline flex items-center gap-1"
                   >
                     {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-                    {copied ? "Copied" : "Copy Hash"}
+                    <span>{copied ? "Copied" : "Copy Hash"}</span>
                   </button>
                 </div>
                 <div className="p-2.5 rounded-lg bg-slate-900 text-cyan-300 font-mono text-[11px] break-all select-all">
-                  {evidence.storedHash}
+                  {storedDisplayHash}
                 </div>
               </div>
 
               <div className="pt-2">
                 <span className="text-[10px] text-slate-500 font-mono font-bold uppercase block mb-1">
-                  Current Computed Hash (Runtime Digest)
+                  Current Computed Hash (Live SHA-256 over Disk Bytes)
                 </span>
-                <div className="p-2.5 rounded-lg bg-slate-900 text-emerald-300 font-mono text-[11px] break-all select-all">
-                  {evidence.sha256}
+                <div className={cn(
+                  "p-2.5 rounded-lg font-mono text-[11px] break-all select-all",
+                  status === "VERIFIED"
+                    ? "bg-slate-900 text-emerald-300"
+                    : status === "TAMPERED"
+                    ? "bg-rose-950 text-rose-300 ring-2 ring-rose-500"
+                    : "bg-slate-900 text-amber-300"
+                )}>
+                  {isVerifying ? "Computing SHA-256..." : currentDisplayHash}
                 </div>
               </div>
             </div>
 
             {/* Status Card */}
-            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-start gap-3">
-              <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
-              <div>
-                <div className="font-bold text-xs uppercase tracking-wider text-emerald-700">
-                  Status: ✓ VERIFIED
+            {status === "VERIFIED" ? (
+              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 flex items-start gap-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-xs uppercase tracking-wider text-emerald-700">
+                    Status: ✓ VERIFIED (INTEGRITY CONFIRMED)
+                  </div>
+                  <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
+                    {verifyResult?.message ||
+                      "The current file hash matches the stored hash, proving zero modification or corruption since evidence acquisition."}
+                  </p>
                 </div>
-                <p className="text-xs text-emerald-800 mt-1 leading-relaxed">
-                  The current file hash matches the stored hash, indicating that the evidence has not changed since the recorded verification point.
-                </p>
               </div>
-            </div>
+            ) : status === "TAMPERED" ? (
+              <div className="p-4 rounded-xl bg-rose-50 border border-rose-300 text-rose-900 flex items-start gap-3">
+                <AlertOctagon className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-xs uppercase tracking-wider text-rose-700">
+                    Status: ⚠ TAMPERED (INTEGRITY VIOLATION)
+                  </div>
+                  <p className="text-xs text-rose-800 mt-1 leading-relaxed">
+                    {verifyResult?.message ||
+                      "INTEGRITY VIOLATION: Current SHA-256 hash does not match recorded catalog hash. File bytes have been modified or corrupted."}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-3">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold text-xs uppercase tracking-wider text-amber-700">
+                    Status: ⚠ {status}
+                  </div>
+                  <p className="text-xs text-amber-800 mt-1 leading-relaxed">
+                    {verifyResult?.message || "Artifact could not be verified against disk storage."}
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="flex items-center justify-between text-[11px] text-slate-500 font-mono pt-1">
-              <span>Timestamp: {evidence.timestamp}</span>
+              <span>Verified: {verifyResult?.timestamp ? verifyResult.timestamp.slice(0, 19).replace("T", " ") + " UTC" : evidence.timestamp}</span>
               <span>Ledger Block: {evidence.recordedBlock || "#0x8F91A204C"}</span>
             </div>
           </div>
@@ -117,7 +201,7 @@ export function EvidenceModal({
           <div className="pt-3 border-t border-slate-200 flex justify-end">
             <button
               onClick={onClose}
-              className="px-5 py-2 rounded-xl neu-flat hover:bg-white text-xs font-semibold text-slate-700"
+              className="px-5 py-2 rounded-xl neu-flat hover:bg-white text-xs font-semibold text-slate-700 active:scale-95 transition-all"
             >
               Done
             </button>

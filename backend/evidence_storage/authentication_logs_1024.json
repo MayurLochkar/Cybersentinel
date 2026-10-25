@@ -1,0 +1,37 @@
+[
+  {
+    "timestamp": "2026-10-21T05:35:10Z",
+    "src_ip": "185.73.21.10",
+    "event": "AUTH_FAILED",
+    "user": "admin",
+    "service": "ssh"
+  },
+  {
+    "timestamp": "2026-10-21T05:35:14Z",
+    "src_ip": "185.73.21.10",
+    "event": "AUTH_FAILED",
+    "user": "root",
+    "service": "ssh"
+  },
+  {
+    "timestamp": "2026-10-21T05:35:18Z",
+    "src_ip": "185.73.21.10",
+    "event": "AUTH_FAILED",
+    "user": "support",
+    "service": "ssh"
+  },
+  {
+    "timestamp": "2026-10-21T05:35:22Z",
+    "src_ip": "185.73.21.10",
+    "event": "AUTH_FAILED",
+    "user": "service_account",
+    "service": "ssh"
+  },
+  {
+    "timestamp": "2026-10-21T05:35:26Z",
+    "src_ip": "185.73.21.10",
+    "event": "AUTH_FAILED",
+    "user": "oracle",
+    "service": "ssh"
+  }
+]

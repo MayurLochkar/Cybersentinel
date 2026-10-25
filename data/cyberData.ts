@@ -10,12 +10,14 @@ export interface Alert {
   incidentId?: string;
   port?: number;
   protocol?: string;
+  reason?: string;
 }
 
 export interface Incident {
   id: string;
   attackType: string;
   sourceIp: string;
+  destinationIp?: string;
   target: string;
   severity: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
   confidence: number;

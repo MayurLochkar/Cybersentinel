@@ -19,11 +19,13 @@ import {
   Activity,
   CheckCircle2,
   UserCheck,
+  Radio,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type NavTab =
   | "dashboard"
+  | "monitoring"
   | "alerts"
   | "incidents"
   | "threat-intel"
@@ -36,6 +38,9 @@ export type NavTab =
   | "report-view"
   | "settings";
 
+import { useEffect, useState } from "react";
+import { fetchDashboardSummary, ApiDashboardSummary } from "@/lib/api";
+
 export function DashboardSidebar({
   activeTab,
   onSelectTab,
@@ -47,10 +52,34 @@ export function DashboardSidebar({
   collapsed: boolean;
   setCollapsed: (c: boolean) => void;
 }) {
+  const [summary, setSummary] = useState<ApiDashboardSummary | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadCounts() {
+      try {
+        const data = await fetchDashboardSummary();
+        if (isMounted) setSummary(data);
+      } catch {
+        // Keep default
+      }
+    }
+    loadCounts();
+    const interval = setInterval(loadCounts, 5000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const totalAlertsStr = summary !== null ? String(summary.total_alerts) : "—";
+  const critAlertsStr = summary !== null ? `${summary.critical} Crit` : "—";
+
   const navItems = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" /> },
-    { id: "alerts", label: "Alerts", icon: <Bell className="w-4 h-4" />, badge: "128" },
-    { id: "incidents", label: "Incidents", icon: <AlertTriangle className="w-4 h-4" />, badge: "3 Crit" },
+    { id: "monitoring", label: "Live Network Monitoring", icon: <Radio className="w-4 h-4 text-emerald-600" />, badge: "LIVE" },
+    { id: "alerts", label: "Alerts", icon: <Bell className="w-4 h-4" />, badge: totalAlertsStr },
+    { id: "incidents", label: "Incidents", icon: <AlertTriangle className="w-4 h-4" />, badge: critAlertsStr },
     { id: "threat-intel", label: "Threat Intelligence", icon: <Flame className="w-4 h-4" /> },
     { id: "investigation", label: "AI Investigation", icon: <BrainCircuit className="w-4 h-4" />, highlight: true },
     { id: "risk", label: "Risk Assessment", icon: <Gauge className="w-4 h-4" /> },
