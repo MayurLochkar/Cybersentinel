@@ -259,6 +259,39 @@ export function HowItWorksModal({
                 </div>
               </div>
 
+              {/* Comparative Advantage over Traditional IDS/IPS */}
+              <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-sm space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>How CyberSentinel-X Advances Beyond Legacy IDS / IPS</span>
+                  </h4>
+                  <span className="text-[10px] font-mono font-bold bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full border border-indigo-100">
+                    Next-Gen AI SOC
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+                    <span className="font-bold block text-[10px] uppercase font-mono text-rose-700">❌ Legacy IDS/IPS (Snort / Suricata)</span>
+                    <ul className="space-y-1 text-slate-600">
+                      <li>• Rigid static signatures miss zero-day & behavioral attacks</li>
+                      <li>• Extreme alert fatigue (thousands of false alarms)</li>
+                      <li>• Cryptic log lines with zero root-cause explanation</li>
+                      <li>• Plaintext logs can be modified or deleted by intruders</li>
+                    </ul>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-emerald-50/60 border border-emerald-200/80 space-y-1">
+                    <span className="font-bold block text-[10px] uppercase font-mono text-emerald-800">✅ CyberSentinel-X AI SOC</span>
+                    <ul className="space-y-1 text-emerald-950 font-medium">
+                      <li>• 70-feature Random Forest detects novel flow anomalies</li>
+                      <li>• RAG AI Copilot gives 4-question plain-language breakdown</li>
+                      <li>• Active perimeter quarantine & drop prevents alarm noise</li>
+                      <li>• SHA-256 cryptographic ledger seals evidence for legal proof</li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
               {/* Quick Jump Action */}
               <div className="p-4 rounded-2xl bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 flex flex-col sm:flex-row items-center justify-between gap-3">
                 <div>
