@@ -21,15 +21,19 @@ import {
   Copy,
   Activity,
   Layers,
+  BrainCircuit,
+  Trash2,
 } from "lucide-react";
 import { CYBER_DATA, Alert, Incident } from "@/data/cyberData";
 import { cn } from "@/lib/utils";
-import { fetchAlerts, updateAlertStatus, ApiAlert } from "@/lib/api";
+import { fetchAlerts, updateAlertStatus, clearAllAlerts, ApiAlert } from "@/lib/api";
 
 export function AlertsView({
   onSelectAlert,
+  onInvestigateAlert,
 }: {
   onSelectAlert: (alert: Alert) => void;
+  onInvestigateAlert?: (alert: Alert) => void;
 }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [severityFilter, setSeverityFilter] = useState("ALL");
@@ -60,8 +64,19 @@ export function AlertsView({
 
   useEffect(() => {
     loadAlerts();
-    const interval = setInterval(loadAlerts, 6000);
-    return () => clearInterval(interval);
+    const interval = setInterval(loadAlerts, 4000);
+    const handleRefresh = () => {
+      loadAlerts();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("cybersentinel-refresh-all", handleRefresh);
+    }
+    return () => {
+      clearInterval(interval);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("cybersentinel-refresh-all", handleRefresh);
+      }
+    };
   }, []);
 
   // Map live database alerts directly from backend SQLite
@@ -83,8 +98,8 @@ export function AlertsView({
       return {
         id: `ALT-${item.id.toString().padStart(4, "0")}`,
         timestamp: item.created_at?.slice(11, 16) || "Just now",
-        sourceIp: !item.source_ip || item.source_ip === "string" ? "192.168.1.185" : item.source_ip,
-        destinationIp: !item.destination_ip || item.destination_ip === "string" ? "192.168.1.1" : item.destination_ip,
+        sourceIp: !item.source_ip || item.source_ip === "string" ? "192.168.29.252" : item.source_ip,
+        destinationIp: !item.destination_ip || item.destination_ip === "string" ? "192.168.29.93" : item.destination_ip,
         attackType: (item.attack_type as any) || "Network Anomaly",
         confidence: item.confidence,
         severity: item.severity,
@@ -186,6 +201,27 @@ export function AlertsView({
         </div>
 
         <div className="flex items-center gap-3 self-end md:self-center">
+          {combinedAlerts.length > 0 && (
+            <button
+              onClick={async () => {
+                try {
+                  await clearAllAlerts();
+                  setLiveBackendAlerts([]);
+                  setToastMsg("All alerts cleared. System status returned to NORMAL.");
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(new CustomEvent("cybersentinel-refresh-all"));
+                  }
+                } catch {
+                  setToastMsg("Failed to clear alerts.");
+                }
+              }}
+              className="px-3 py-1.5 rounded-xl neu-flat hover:bg-rose-50 text-rose-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 border border-rose-200/60 cursor-pointer shadow-2xs"
+              title="Clear all alerts and reset system to Normal"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Clear History</span>
+            </button>
+          )}
           <div className="text-right">
             <span className="text-[10px] font-mono text-slate-400 block uppercase">Total Threats</span>
             <span className="text-2xl font-black font-mono text-slate-900">
@@ -394,6 +430,20 @@ export function AlertsView({
                     <span>Resolve Incident</span>
                   </button>
                 </div>
+
+                <div className="pt-2 border-t border-slate-200/80">
+                  <button
+                    onClick={() => {
+                      if (onInvestigateAlert) onInvestigateAlert(activeAlert);
+                      else onSelectAlert(activeAlert);
+                    }}
+                    className="w-full py-2 rounded-xl neu-accent-btn text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all active:scale-95 cursor-pointer"
+                  >
+                    <BrainCircuit className="w-4 h-4 text-glacier" />
+                    <span>Launch AI Investigation</span>
+                    <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -408,7 +458,7 @@ export function AlertsView({
             type="text"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Search by IP address, attack vector, or alert/incident ID (e.g. 192.168.1.185, INC-REAL)..."
+            placeholder="Search by IP address, attack vector, or alert/incident ID (e.g. 192.168.29.252, INC-LIVE)..."
             className="w-full pl-10 pr-4 py-2.5 bg-white/90 neu-pressed-sm rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 font-mono transition-all"
           />
         </div>
@@ -642,10 +692,12 @@ export function AlertsView({
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onSelectAlert(alert);
+                                if (onInvestigateAlert) onInvestigateAlert(alert);
+                                else onSelectAlert(alert);
                               }}
-                              className="px-2.5 py-1 rounded neu-flat-sm group-hover:bg-blue-600 group-hover:text-white text-[11px] font-bold text-slate-700 transition-colors flex items-center gap-1 shadow-sm"
+                              className="px-2.5 py-1 rounded neu-accent-btn text-[11px] font-bold text-white transition-all flex items-center gap-1 shadow-xs hover:shadow"
                             >
+                              <BrainCircuit className="w-3.5 h-3.5 text-glacier" />
                               <span>Investigate</span>
                               <ArrowRight className="w-3 h-3" />
                             </button>

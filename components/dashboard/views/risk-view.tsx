@@ -22,7 +22,8 @@ export function RiskView({
         if (isMounted) {
           setRiskData(data);
           if (data.incidents.length > 0 && !selectedIncidentId) {
-            setSelectedIncidentId(data.incidents[0].incident_id);
+            const crit = data.incidents.find((i) => i.risk_level === "CRITICAL" || i.attack_type.includes("DoS"));
+            setSelectedIncidentId(crit ? crit.incident_id : data.incidents[0].incident_id);
           }
         }
       } catch {
@@ -32,6 +33,18 @@ export function RiskView({
       }
     }
     loadRisk();
+    const handleRefresh = () => {
+      loadRisk();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("cybersentinel-refresh-all", handleRefresh);
+    }
+    return () => {
+      isMounted = false;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("cybersentinel-refresh-all", handleRefresh);
+      }
+    };
   }, [selectedIncidentId]);
 
   // Selected incident risk, or fallback to prototype

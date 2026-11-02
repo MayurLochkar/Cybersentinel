@@ -68,8 +68,8 @@ export function CenteredCommandNav({ activeTab, onSelectTab }: CenteredCommandNa
     };
   }, []);
 
-  const totalAlertsStr = summary !== null ? String(summary.total_alerts) : "—";
-  const critAlertsStr = summary !== null ? `${summary.critical} Crit` : "—";
+  const totalAlertsStr = summary !== null && summary.total_alerts > 0 ? String(summary.total_alerts) : undefined;
+  const critAlertsStr = summary !== null && summary.critical > 0 ? `${summary.critical} Crit` : summary !== null && summary.high_risk > 0 ? `${summary.high_risk} High` : undefined;
 
   const navGroups: NavGroup[] = [
     {

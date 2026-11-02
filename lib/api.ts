@@ -32,6 +32,12 @@ export interface ApiDashboardSummary {
   benign_count?: number;
   attack_count?: number;
   monitoring_alerts?: number;
+  is_active_attack?: boolean;
+  current_threat_level?: "NORMAL" | "HIGH" | "CRITICAL";
+  active_attack_type?: string | null;
+  active_attack_source?: string | null;
+  last_attack_seconds_ago?: number | null;
+  laptop_b_ip?: string | null;
 }
 
 
@@ -128,10 +134,10 @@ export async function updateAlertStatus(
 }
 
 /**
- * Clears all persistent alerts from SQLite database
+ * Clears all persistent alerts from SQLite database and resets threat status to NORMAL
  */
-export async function clearAllAlerts(): Promise<{ status: string; deleted_count: number }> {
-  const res = await fetch(`${API_BASE_URL}/api/alerts/clear`, {
+export async function clearAllAlerts(): Promise<{ status: string; deleted_count: number; message?: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/monitoring/clear_all_alerts`, {
     method: "POST",
   });
   if (!res.ok) throw new Error("Failed to clear alerts");
@@ -186,6 +192,13 @@ export interface MonitoringStatus {
   errors_count: number;
   last_error: string | null;
   message?: string;
+  is_active_attack?: boolean;
+  current_threat_level?: "NORMAL" | "HIGH" | "CRITICAL";
+  active_attack_type?: string | null;
+  active_attack_source?: string | null;
+  last_attack_seconds_ago?: number | null;
+  laptop_b_ip?: string | null;
+  live_diagnostics?: any;
 }
 
 export interface RecentFlow {
@@ -229,6 +242,8 @@ export interface MonitoringMetrics {
   duplicates_prevented?: number;
   errors_count: number;
   recent_flows: RecentFlow[];
+  laptop_b_ip?: string | null;
+  packets_from_laptop_b?: number;
 }
 
 export interface NetworkInterfaceInfo {
@@ -370,6 +385,39 @@ export async function resetMonitoringTelemetry(): Promise<MonitoringStatus> {
     method: "POST",
   });
   if (!res.ok) throw new Error("Failed to reset monitoring telemetry");
+  return res.json();
+}
+
+/**
+ * Resets active attack status back to NORMAL / SAFE.
+ */
+export async function clearActiveAttack(): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/monitoring/clear_active_attack`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to clear active attack state");
+  return res.json();
+}
+
+
+
+/**
+ * Triggers a real multiclass attack or baseline test burst from Laptop B.
+ */
+export async function simulateAttackBurst(
+  sourceIp?: string,
+  targetPort: number = 8000,
+  attackType: string = "DoS"
+): Promise<any> {
+  const params = new URLSearchParams();
+  if (sourceIp) params.append("source_ip", sourceIp);
+  params.append("target_port", String(targetPort));
+  params.append("attack_type", attackType);
+
+  const res = await fetch(`${API_BASE_URL}/api/monitoring/simulate_burst?${params.toString()}`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to execute traffic simulation");
   return res.json();
 }
 
@@ -745,6 +793,8 @@ export async function fetchAIKnowledgeStats(): Promise<{
   active_provider: string;
   rag_status: string;
   supported_providers: string[];
+  storage_path?: string;
+  dataset_version?: string;
 }> {
   const res = await fetch(`${API_BASE_URL}/api/ai/knowledge-stats`, {
     cache: "no-store",
@@ -752,5 +802,97 @@ export async function fetchAIKnowledgeStats(): Promise<{
   if (!res.ok) throw new Error("Failed to fetch AI knowledge stats");
   return res.json();
 }
+
+export interface ModelPerformanceData {
+  model_name: string;
+  model_version: string;
+  task: string;
+  dataset: string;
+  evaluation_partition: string;
+  total_samples_evaluated: number;
+  metrics: {
+    accuracy: number;
+    precision: number;
+    recall: number;
+    f1_score: number;
+    false_positive_rate: number;
+    roc_auc: number;
+    inference_latency_ms: number;
+    throughput_flows_per_second: number;
+  };
+  confusion_matrix: {
+    true_negatives: number;
+    false_positives: number;
+    false_negatives: number;
+    true_positives: number;
+    classes: string[];
+    matrix: number[][];
+    normalized_percent: {
+      benign_correct: number;
+      benign_false_alarm: number;
+      attack_missed: number;
+      attack_detected: number;
+    };
+  };
+  per_class_breakdown: Array<{
+    class_name: string;
+    precision: number;
+    recall: number;
+    f1: number;
+    support: number;
+  }>;
+  top_global_features: Array<{
+    feature: string;
+    importance: number;
+    rank: number;
+  }>;
+}
+
+/**
+ * Fetch verified ML model evaluation benchmarks against CIC-IDS2017 dataset
+ */
+export async function fetchModelPerformance(): Promise<ModelPerformanceData> {
+  const res = await fetch(`${API_BASE_URL}/api/analytics/model-performance`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("Failed to fetch model evaluation metrics");
+  return res.json();
+}
+
+/**
+ * Fetch list of all persisted LangGraph investigation reports
+ */
+export async function fetchPersistedInvestigations(): Promise<any[]> {
+  const res = await fetch(`${API_BASE_URL}/api/ai/investigations`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error("Failed to fetch investigation reports");
+  return res.json();
+}
+
+/**
+ * Fetch a specific persisted investigation report by incident_id
+ */
+export async function fetchPersistedInvestigationById(incidentId: string): Promise<any> {
+  const res = await fetch(`${API_BASE_URL}/api/ai/investigations/${encodeURIComponent(incidentId)}`, {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Investigation report for ${incidentId} not found`);
+  return res.json();
+}
+
+/**
+ * Direct semantic vector query against persistent ChromaDB MITRE ATT&CK store
+ */
+export async function queryRAGKnowledge(query: string, topK: number = 3): Promise<any> {
+  const res = await fetch(`${API_BASE_URL}/api/ai/rag/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, top_k: topK }),
+  });
+  if (!res.ok) throw new Error("Failed to query RAG knowledge store");
+  return res.json();
+}
+
 
 

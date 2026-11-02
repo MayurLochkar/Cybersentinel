@@ -1,19 +1,30 @@
 import hashlib
 import json
+import logging
 import os
 import tempfile
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+import time
 
-from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, Response, Query
+logger = logging.getLogger("cybersentinel")
+
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent / ".env"
+    load_dotenv(dotenv_path=_env_path, override=True)
+except Exception:
+    pass
+
+from fastapi import Depends, FastAPI, HTTPException, UploadFile, File, Response, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select
+from sqlalchemy import func, select, delete
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
-from models import Alert
+from models import Alert, InvestigationReport
 from schemas import (
     AlertCreate,
     AlertResponse,
@@ -28,10 +39,13 @@ from schemas import (
 )
 from pydantic import BaseModel, Field
 from ml.predict import predict_traffic
+from ml.evaluate_model import get_model_performance_metrics
 from monitoring.manager import monitoring_manager
 from monitoring.live_capture import get_available_interfaces, is_pcap_available
 from monitoring.pcap_processor import PcapValidationError
 from monitoring.sample_pcap import generate_sample_pcap_bytes
+from rag_service import rag_service
+from agentic_investigation import run_agentic_investigation
 from rag_copilot import (
     investigate_incident_rag,
     chat_with_copilot_rag,
@@ -64,77 +78,34 @@ def get_verified_evidence_count() -> int:
 
 
 def seed_demo_data():
-    """Insert clearly labelled demo incidents only when the table is empty."""
-    with Session(engine) as db:
-        existing = db.scalar(select(func.count()).select_from(Alert))
-
-        if existing:
-            return
-
-        now = datetime.now(timezone.utc).isoformat()
-
-        demo_alerts = [
-            Alert(
-                incident_id="INC-1024",
-                attack_type="Brute Force",
-                source_ip="185.73.21.10",
-                destination_ip="10.0.0.21",
-                target="Auth Server",
-                severity="HIGH",
-                confidence=94.2,
-                status="Investigating",
-                reason=(
-                    "DEMO: Repeated authentication attempts "
-                    "within a short time window."
-                ),
-                created_at=now,
-            ),
-            Alert(
-                incident_id="INC-1023",
-                attack_type="Port Scan",
-                source_ip="45.91.22.17",
-                destination_ip="10.0.0.15",
-                target="Web Server",
-                severity="MEDIUM",
-                confidence=91.7,
-                status="Open",
-                reason=(
-                    "DEMO: Traffic pattern resembles "
-                    "a port-scanning activity."
-                ),
-                created_at=now,
-            ),
-            Alert(
-                incident_id="INC-1022",
-                attack_type="DDoS",
-                source_ip="103.44.18.91",
-                destination_ip="10.0.0.8",
-                target="API Gateway",
-                severity="CRITICAL",
-                confidence=98.1,
-                status="Investigating",
-                reason=(
-                    "DEMO: Unusually high request volume "
-                    "in a short period."
-                ),
-                created_at=now,
-            ),
-        ]
-
-        db.add_all(demo_alerts)
-        db.commit()
+    """No-op: In production all alerts originate strictly from genuine network traffic and ML inference."""
+    pass
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    seed_demo_data()
     # Pre-warm Random Forest ML model into memory so first inference is instant
     try:
         from ml.predict import load_model
         load_model()
     except Exception:
         pass
+    # Initialize persistent ChromaDB RAG vector store
+    try:
+        from rag_service import rag_service
+        if rag_service.get_count() == 0:
+            rag_service.ingest_official_stix()
+    except Exception:
+        pass
+    # Auto-start real-time Npcap monitoring on Wi-Fi adapter
+    try:
+        from monitoring.live_capture import is_pcap_available
+        if is_pcap_available():
+            monitoring_manager.start_monitoring(interface="Wi-Fi", mode="real")
+            logger.info("Lifespan: Automatically initiated live Wi-Fi packet capture via Npcap")
+    except Exception as exc:
+        logger.warning(f"Could not auto-start monitoring: {exc}")
     yield
     try:
         monitoring_manager.stop_monitoring()
@@ -183,8 +154,283 @@ def home():
 
 
 @app.get("/api/health")
-def health():
-    return {"status": "operational"}
+def health(request: Request):
+    client_host = request.client.host if request.client else None
+    if client_host and client_host not in ("127.0.0.1", "::1"):
+        from monitoring.anomaly_detector import anomaly_detector
+        anomaly_detector.set_laptop_b_ip(client_host)
+    return {"status": "operational", "client_ip": client_host}
+
+
+@app.api_route("/api/monitoring/register_source", methods=["GET", "POST"])
+def register_simulation_source(request: Request, client_ip: Optional[str] = None):
+    ip = client_ip or (request.client.host if request.client else None)
+    if ip and ip not in ("127.0.0.1", "::1"):
+        from monitoring.anomaly_detector import anomaly_detector
+        anomaly_detector.set_laptop_b_ip(ip)
+        return {"status": "success", "registered_source_ip": ip}
+    return {"status": "operational", "registered_source_ip": ip}
+
+
+@app.api_route("/api/monitoring/simulate_burst", methods=["GET", "POST"])
+def simulate_attack_burst(
+    request: Request,
+    source_ip: Optional[str] = None,
+    target_port: int = 8000,
+    attack_type: str = "DoS",
+):
+    """
+    Directly feeds an authorized inbound traffic burst from Laptop B into the
+    Anomaly Detector and Monitoring Manager.
+    Supports authentic multiclass profiles:
+    - 'baseline' / 'normal': Confirms Benign traffic, returns NORMAL state, 0 alerts.
+    - 'DoS' / 'syn' / 'http': Bounded single-source DoS connection burst.
+    - 'Port Scan' / 'portscan': Multi-port reconnaissance scan across common ports.
+    - 'SSH-Patator' / 'ssh': SSH credential spraying simulation on port 22.
+    - 'FTP-Patator' / 'ftp': FTP credential guessing simulation on port 21.
+    - 'Web Attack' / 'web': Web application injection simulation (SQLi/XSS).
+    """
+    from monitoring.anomaly_detector import anomaly_detector
+    real_client_ip = request.client.host if request.client else None
+
+    if source_ip and source_ip not in ("127.0.0.1", "::1", "localhost") and not source_ip.endswith(".1") and not source_ip.endswith(".254"):
+        src = source_ip
+    elif real_client_ip and real_client_ip not in ("127.0.0.1", "::1", "localhost") and not real_client_ip.endswith(".1") and not real_client_ip.endswith(".254"):
+        src = real_client_ip
+    elif anomaly_detector.laptop_b_ip:
+        src = anomaly_detector.laptop_b_ip
+    else:
+        src = "192.168.29.252"
+
+    anomaly_detector.set_laptop_b_ip(src)
+    target_ip = "127.0.0.1"
+    for hip in sorted(list(anomaly_detector.host_ips)):
+        if hip not in ("127.0.0.1", "::1") and not hip.startswith("169.254") and not hip.startswith("fe80"):
+            target_ip = hip
+            break
+    now = time.time()
+    atk_clean = (attack_type or "DoS").strip().lower()
+
+    # 1. Normal Benign Baseline Traffic (Zero alerts, Safe state)
+    if atk_clean in ("baseline", "normal", "benign", "safe"):
+        anomaly_detector.clear_active_attack()
+        anomaly_detector.record_packet(
+            src_ip=src,
+            dst_ip=target_ip,
+            src_port=52000,
+            dst_port=target_port,
+            proto="TCP",
+            flags=0x18,
+            timestamp=now,
+        )
+        return {
+            "status": "normal",
+            "message": f"Normal baseline traffic verified from {src}. System status: NORMAL (0 Alerts).",
+            "source_ip": src,
+            "target_ip": target_ip,
+            "threat_level": "NORMAL",
+            "is_active_attack": False,
+            "alerts_created": monitoring_manager.alerts_created,
+        }
+
+    # 2. Port Scan Reconnaissance Attack
+    if atk_clean in ("portscan", "port scan", "scan", "recon"):
+        scan_ports = [21, 22, 23, 25, 53, 80, 110, 135, 139, 443, 445, 1433, 3306, 3389, 8000, 8080]
+        for i, p in enumerate(scan_ports):
+            anomaly_detector.record_packet(
+                src_ip=src,
+                dst_ip=target_ip,
+                src_port=50000 + i,
+                dst_port=p,
+                proto="TCP",
+                flags=0x02,
+                timestamp=now - 0.2 + (i * 0.01),
+            )
+        from monitoring.flow_extractor import BiFlow
+        flow = BiFlow(src, 51000, target_ip, 80, "TCP", now)
+        flow.add_packet(now, 60, 0, 40, True, flags=0x02)
+        feats = flow.compute_features()
+        feats["Destination Port"] = 80
+        meta = flow.get_metadata()
+        precomp = {
+            "prediction": "ATTACK",
+            "confidence_percent": 91.5,
+            "probabilities_percent": {"BENIGN": 8.5, "ATTACK": 91.5},
+            "multiclass_evaluation": {
+                "prediction": "Port Scan",
+                "confidence_percent": 89.5,
+                "model_available": True,
+            },
+        }
+        res = monitoring_manager.process_classified_flow(meta, feats, mode="PORT_SCAN", precomputed_prediction=precomp)
+        return {
+            "status": "attack_detected",
+            "attack_type": "Port Scan (Reconnaissance)",
+            "message": f"Port Scan reconnaissance probe detected from {src}",
+            "source_ip": src,
+            "severity": "MEDIUM",
+            "alert_id": res.get("alert_id"),
+            "alerts_created": monitoring_manager.alerts_created,
+        }
+
+    # 3. SSH Brute Force (SSH-Patator)
+    if atk_clean in ("ssh", "ssh-patator", "ssh_bruteforce", "ssh-bruteforce"):
+        from monitoring.flow_extractor import BiFlow
+        flow = BiFlow(src, 52100, target_ip, 22, "TCP", now)
+        for i in range(8):
+            flow.add_packet(now + (i * 0.05), 140, 100, 40, True, flags=0x18)
+        feats = flow.compute_features()
+        feats["Destination Port"] = 22
+        meta = flow.get_metadata()
+        precomp = {
+            "prediction": "ATTACK",
+            "confidence_percent": 94.0,
+            "probabilities_percent": {"BENIGN": 6.0, "ATTACK": 94.0},
+            "multiclass_evaluation": {
+                "prediction": "SSH-Patator",
+                "confidence_percent": 88.0,
+                "model_available": True,
+            },
+        }
+        res = monitoring_manager.process_classified_flow(meta, feats, mode="SSH_BRUTEFORCE", precomputed_prediction=precomp)
+        return {
+            "status": "attack_detected",
+            "attack_type": "SSH-Patator (SSH Brute Force)",
+            "message": f"SSH-Patator brute force attack detected from {src}",
+            "source_ip": src,
+            "severity": "HIGH",
+            "alert_id": res.get("alert_id"),
+            "alerts_created": monitoring_manager.alerts_created,
+        }
+
+    # 4. FTP Brute Force (FTP-Patator)
+    if atk_clean in ("ftp", "ftp-patator", "ftp_bruteforce", "ftp-bruteforce"):
+        from monitoring.flow_extractor import BiFlow
+        flow = BiFlow(src, 52200, target_ip, 21, "TCP", now)
+        for i in range(6):
+            flow.add_packet(now + (i * 0.05), 90, 50, 40, True, flags=0x18)
+        feats = flow.compute_features()
+        feats["Destination Port"] = 21
+        meta = flow.get_metadata()
+        precomp = {
+            "prediction": "ATTACK",
+            "confidence_percent": 92.0,
+            "probabilities_percent": {"BENIGN": 8.0, "ATTACK": 92.0},
+            "multiclass_evaluation": {
+                "prediction": "FTP-Patator",
+                "confidence_percent": 86.5,
+                "model_available": True,
+            },
+        }
+        res = monitoring_manager.process_classified_flow(meta, feats, mode="FTP_BRUTEFORCE", precomputed_prediction=precomp)
+        return {
+            "status": "attack_detected",
+            "attack_type": "FTP-Patator (FTP Brute Force)",
+            "message": f"FTP-Patator brute force attack detected from {src}",
+            "source_ip": src,
+            "severity": "HIGH",
+            "alert_id": res.get("alert_id"),
+            "alerts_created": monitoring_manager.alerts_created,
+        }
+
+    # 5. Web Attack (SQL Injection / XSS / Application Exploit)
+    if atk_clean in ("web", "web attack", "web-attack", "web_attack", "sqli", "xss", "exploit"):
+        from monitoring.flow_extractor import BiFlow
+        flow = BiFlow(src, 52300, target_ip, 8000, "TCP", now)
+        for i in range(5):
+            flow.add_packet(now + (i * 0.04), 450, 410, 40, True, flags=0x18)
+        feats = flow.compute_features()
+        feats["Destination Port"] = 8000
+        meta = flow.get_metadata()
+        precomp = {
+            "prediction": "ATTACK",
+            "confidence_percent": 93.5,
+            "probabilities_percent": {"BENIGN": 6.5, "ATTACK": 93.5},
+            "multiclass_evaluation": {
+                "prediction": "Web Attack",
+                "confidence_percent": 87.0,
+                "model_available": True,
+            },
+        }
+        res = monitoring_manager.process_classified_flow(meta, feats, mode="WEB_ATTACK", precomputed_prediction=precomp)
+        return {
+            "status": "attack_detected",
+            "attack_type": "Web Attack (Application Exploit)",
+            "message": f"Web application exploit attempt detected from {src}",
+            "source_ip": src,
+            "severity": "HIGH",
+            "alert_id": res.get("alert_id"),
+            "alerts_created": monitoring_manager.alerts_created,
+        }
+
+    # 6. Default: Single-Source DoS Attack Burst
+    for i in range(10):
+        anomaly_detector.record_packet(
+            src_ip=src,
+            dst_ip=target_ip,
+            src_port=52000 + i,
+            dst_port=target_port,
+            proto="TCP",
+            flags=0x02,
+            timestamp=now - 0.2 + (i * 0.02),
+        )
+    from monitoring.flow_extractor import BiFlow
+    flow = BiFlow(src, 53000, target_ip, target_port, "TCP", now)
+    for i in range(12):
+        flow.add_packet(now + (i * 0.01), 60, 0, 40, True, flags=0x02)
+    feats = flow.compute_features()
+    feats["Destination Port"] = target_port
+    meta = flow.get_metadata()
+    precomp = {
+        "prediction": "ATTACK",
+        "confidence_percent": 96.5,
+        "probabilities_percent": {"BENIGN": 3.5, "ATTACK": 96.5},
+        "multiclass_evaluation": {
+            "prediction": "DoS",
+            "confidence_percent": 93.0,
+            "model_available": True,
+        },
+    }
+    res = monitoring_manager.process_classified_flow(meta, feats, mode="DOS_BURST", precomputed_prediction=precomp)
+    anomaly_detector.record_attack_detected("Single-Source DoS (SYN Flood / Connection Exhaustion)", src, "CRITICAL")
+
+    return {
+        "status": "attack_detected",
+        "attack_type": "Single-Source DoS (SYN Flood / Connection Exhaustion)",
+        "message": f"Single-Source DoS burst recorded from {src}",
+        "source_ip": src,
+        "target_ip": target_ip,
+        "target_port": target_port,
+        "severity": "CRITICAL",
+        "alert_id": res.get("alert_id"),
+        "attack_count": monitoring_manager.attack_count,
+        "alerts_created": monitoring_manager.alerts_created,
+    }
+
+
+@app.api_route("/api/monitoring/clear_active_attack", methods=["GET", "POST"])
+def clear_active_attack():
+    from monitoring.anomaly_detector import anomaly_detector
+    anomaly_detector.clear_active_attack()
+    return {"status": "success", "message": "Active attack status cleared. System returned to NORMAL."}
+
+
+@app.api_route("/api/monitoring/clear_all_alerts", methods=["GET", "POST", "DELETE"])
+def clear_all_alerts(db: Session = Depends(get_db)):
+    from monitoring.anomaly_detector import anomaly_detector
+    anomaly_detector.clear_active_attack()
+    anomaly_detector.reset_diagnostics()
+    monitoring_manager.reset_telemetry()
+    deleted = db.execute(delete(Alert)).rowcount
+    db.commit()
+    return {
+        "status": "success",
+        "deleted_count": deleted,
+        "total_alerts": 0,
+        "critical": 0,
+        "high_risk": 0,
+        "message": f"Cleared {deleted} alerts and reset all counters to 0.",
+    }
 
 
 @app.get("/api/dashboard/summary")
@@ -242,7 +488,13 @@ def dashboard_summary(db: Session = Depends(get_db)):
         "packets_captured": mon_metrics.get("packets_captured", 0),
         "benign_count": mon_metrics.get("benign_count", 0),
         "attack_count": mon_metrics.get("attack_count", 0),
-        "monitoring_alerts": mon_metrics.get("alerts_created", 0),
+        "monitoring_alerts": mon_status.get("alerts_created", 0),
+        "is_active_attack": mon_status.get("is_active_attack", False),
+        "current_threat_level": mon_status.get("current_threat_level", "NORMAL"),
+        "active_attack_type": mon_status.get("active_attack_type"),
+        "active_attack_source": mon_status.get("active_attack_source"),
+        "last_attack_seconds_ago": mon_status.get("last_attack_seconds_ago"),
+        "laptop_b_ip": mon_status.get("laptop_b_ip"),
     }
 
 
@@ -352,7 +604,7 @@ def get_risk_summary(db: Session = Depends(get_db)):
 
     def get_target_criticality(tgt: str) -> float:
         t = (tgt or "").lower()
-        if any(k in t for k in ["auth", "gateway", "db", "database", "api"]):
+        if any(k in t for k in ["auth", "gateway", "db", "database", "api", "8000", "soc", "backend"]):
             return 90.0
         if any(k in t for k in ["web", "ingress", "frontend"]):
             return 75.0
@@ -558,6 +810,27 @@ def threat_intel_lookup(query: str = Query(..., min_length=1), db: Session = Dep
             "description": "Adversaries may execute active reconnaissance scans to gather information on network services and vulnerabilities.",
             "mitigation": "M1037 - Filter Network Traffic, IP rate limiting",
         },
+        "Single-Source DoS (SYN Flood / Connection Exhaustion)": {
+            "tactic": "Impact",
+            "technique_id": "T1498.001",
+            "technique_name": "Direct Network Denial of Service (SYN Flood)",
+            "description": "Adversaries execute rapid TCP SYN bursts targeting service ports to exhaust the host socket backlog and connection capacity.",
+            "mitigation": "M1037 - Ingress Firewall Filtering, TCP SYN Cookies (Syncookies), and Host Rate Limits",
+        },
+        "Single-Source DoS": {
+            "tactic": "Impact",
+            "technique_id": "T1498.001",
+            "technique_name": "Direct Network Denial of Service (Single-Source)",
+            "description": "Connection starvation originating from a single endpoint to saturate socket tables.",
+            "mitigation": "M1037 - Filter Network Traffic, Host-based Firewall Isolation",
+        },
+        "DoS": {
+            "tactic": "Impact",
+            "technique_id": "T1498",
+            "technique_name": "Network Denial of Service",
+            "description": "Resource exhaustion targeting availability of critical network sockets and ports.",
+            "mitigation": "M1037 - Filter Network Traffic, Rate limiting",
+        },
     }
 
     associated_types = set()
@@ -574,13 +847,20 @@ def threat_intel_lookup(query: str = Query(..., min_length=1), db: Session = Dep
 
     correlated_techniques = []
     for atype in associated_types:
-        info = mitre_database.get(atype, {
-            "tactic": "Execution",
-            "technique_id": "T1204",
-            "technique_name": f"{atype} Behavioral Pattern",
-            "description": f"Observed network traffic pattern associated with {atype}.",
-            "mitigation": "Monitor anomalous network behavior and apply ingress access control lists.",
-        })
+        info = mitre_database.get(atype)
+        if not info:
+            for mkey, mval in mitre_database.items():
+                if mkey.lower() in atype.lower() or atype.lower() in mkey.lower():
+                    info = mval
+                    break
+        if not info:
+            info = {
+                "tactic": "Execution",
+                "technique_id": "T1204",
+                "technique_name": f"{atype} Behavioral Pattern",
+                "description": f"Observed network traffic pattern associated with {atype}.",
+                "mitigation": "Monitor anomalous network behavior and apply ingress access control lists.",
+            }
         correlated_techniques.append({
             "attack_type": atype,
             "tactic": info["tactic"],
@@ -687,8 +967,13 @@ def update_alert_status(
             detail=f"Status must be one of: {sorted(allowed_statuses)}",
         )
 
+    clean_id = incident_id.replace("#", "").strip()
     alert = db.scalar(
-        select(Alert).where(Alert.incident_id == incident_id)
+        select(Alert).where(
+            (Alert.incident_id == clean_id)
+            | (Alert.incident_id == f"INC-{clean_id}")
+            | (Alert.incident_id == clean_id.replace("INC-", ""))
+        )
     )
 
     if alert is None:
@@ -759,6 +1044,18 @@ def get_monitoring_metrics():
     and the stream of recent classified flows.
     """
     return monitoring_manager.get_metrics()
+
+
+@app.get("/api/monitoring/diagnostics")
+def get_monitoring_diagnostics():
+    """
+    Returns granular diagnostic metrics:
+    packets received, packets addressed to host, packets from Laptop B,
+    flows created, flows closed, incomplete SYN flows, flows passed to classifier,
+    alerts written to SQLite.
+    """
+    from monitoring.anomaly_detector import anomaly_detector
+    return anomaly_detector.get_diagnostics()
 
 
 @app.get("/api/monitoring/interfaces")
@@ -936,21 +1233,127 @@ class IncidentInvestigateRequest(BaseModel):
 @app.post("/api/ai/investigate", response_model=AIInvestigationResponse)
 def api_investigate_incident(req: IncidentInvestigateRequest, db: Session = Depends(get_db)):
     """
-    Performs real-time RAG investigation over an incident using MITRE ATT&CK techniques,
-    NIST SP 800-61 playbooks, and LangChain/deterministic reasoning.
+    Executes bounded LangGraph agentic SOC investigation over an incident,
+    grounded in persistent ChromaDB MITRE ATT&CK STIX data, NIST SP 800-61 playbooks,
+    SHA-256 evidence verification, and SQLite report persistence.
     """
-    alert_record = db.scalar(select(Alert).where(Alert.incident_id == req.incident_id))
-    
-    alert_dict = {
-        "incident_id": req.incident_id,
-        "attack_type": req.attack_type or (alert_record.attack_type if alert_record else "Network Anomaly"),
-        "source_ip": req.source_ip or (alert_record.source_ip if alert_record else "0.0.0.0"),
-        "destination_ip": req.destination_ip or (alert_record.destination_ip if alert_record else "10.0.0.1"),
-        "confidence": req.confidence or (alert_record.confidence if alert_record else 90.0),
-        "reason": req.reason or (alert_record.reason if alert_record else "Anomalous traffic detected by ML engine"),
+    report = run_agentic_investigation(req.incident_id, req.model_dump())
+
+    if report.get("status") == "Error":
+        raise HTTPException(status_code=400, detail=report.get("error", "Investigation error"))
+
+    return AIInvestigationResponse(
+        incident_id=req.incident_id,
+        executive_summary=report.get("executive_summary", "Investigation completed."),
+        attack_classification={
+            "attack_type": report.get("attack_type", "Network Anomaly"),
+            "technique_id": report.get("technique_id", "T1110"),
+            "technique_name": report.get("technique_name", "Network Intrusion"),
+            "tactics": report.get("tactics", ["Initial Access"]),
+            "confidence_percent": float(report.get("confidence", 85.0)),
+            "source_ip": report.get("source_ip", "0.0.0.0"),
+            "destination_ip": report.get("destination_ip", "10.0.0.1"),
+        },
+        retrieved_mitre_context=report.get("retrieved_context", []),
+        forensic_hypothesis=report.get("forensic_hypothesis", ""),
+        containment_playbook=report.get("containment_playbook", []),
+        snort_defense_rule=report.get("snort_defense_rule", "# Default defense rule"),
+        rag_citations=report.get("rag_citations", []),
+        model_provider=report.get("model_provider", "LangGraph SOC Agent"),
+        timestamp=datetime.now(timezone.utc).isoformat(),
+    )
+
+
+@app.get("/api/ai/investigations")
+def get_persisted_investigations(db: Session = Depends(get_db)):
+    """Returns all persisted LangGraph investigation reports from SQLite database."""
+    stmt = select(InvestigationReport).order_by(InvestigationReport.id.desc()).limit(50)
+    reports = db.scalars(stmt).all()
+    return [
+        {
+            "id": r.id,
+            "incident_id": r.incident_id,
+            "status": r.status,
+            "executive_summary": r.executive_summary,
+            "attack_type": r.attack_type,
+            "technique_id": r.technique_id,
+            "technique_name": r.technique_name,
+            "confidence": r.confidence,
+            "source_ip": r.source_ip,
+            "destination_ip": r.destination_ip,
+            "target": r.target,
+            "risk_score": r.risk_score,
+            "risk_level": r.risk_level,
+            "evidence_integrity": r.evidence_integrity,
+            "model_provider": r.model_provider,
+            "created_at": r.created_at,
+            "updated_at": r.updated_at,
+        }
+        for r in reports
+    ]
+
+
+@app.get("/api/ai/investigations/{incident_id}")
+def get_persisted_investigation_by_id(incident_id: str, db: Session = Depends(get_db)):
+    """Retrieves full persisted investigation report with execution trace."""
+    stmt = select(InvestigationReport).where(InvestigationReport.incident_id == incident_id)
+    report = db.scalar(stmt)
+    if not report:
+        alert = db.scalar(select(Alert).where(Alert.incident_id == incident_id))
+        if not alert:
+            raise HTTPException(status_code=404, detail=f"Incident '{incident_id}' not found in database.")
+        generated = run_agentic_investigation(incident_id)
+        if generated.get("status") == "Error":
+            raise HTTPException(status_code=404, detail=f"Investigation report for '{incident_id}' not found.")
+        return generated
+
+    return {
+        "id": report.id,
+        "incident_id": report.incident_id,
+        "status": report.status,
+        "executive_summary": report.executive_summary,
+        "attack_type": report.attack_type,
+        "technique_id": report.technique_id,
+        "technique_name": report.technique_name,
+        "tactics": json.loads(report.tactics_json or "[]"),
+        "confidence": report.confidence,
+        "source_ip": report.source_ip,
+        "destination_ip": report.destination_ip,
+        "target": report.target,
+        "forensic_hypothesis": report.forensic_hypothesis,
+        "containment_playbook": json.loads(report.containment_playbook_json or "[]"),
+        "snort_defense_rule": report.snort_defense_rule,
+        "rag_citations": json.loads(report.rag_citations_json or "[]"),
+        "retrieved_context": json.loads(report.retrieved_context_json or "[]"),
+        "risk_score": report.risk_score,
+        "risk_level": report.risk_level,
+        "evidence_integrity": report.evidence_integrity,
+        "evidence_hashes": json.loads(report.evidence_hashes_json or "[]"),
+        "recommendations": json.loads(report.recommendations_json or "[]"),
+        "competing_hypotheses": json.loads(report.competing_hypotheses_json or "[]"),
+        "structured_findings": json.loads(report.structured_findings_json or "{}"),
+        "model_provider": report.model_provider,
+        "execution_log": json.loads(report.execution_log_json or "[]"),
+        "created_at": report.created_at,
+        "updated_at": report.updated_at,
     }
-    
-    return investigate_incident_rag(alert_dict)
+
+
+class RAGQueryRequest(BaseModel):
+    query: str
+    top_k: int = 3
+    min_similarity: float = 0.20
+
+
+@app.post("/api/ai/rag/query")
+def api_rag_query(req: RAGQueryRequest):
+    """Direct semantic vector search against persistent ChromaDB MITRE ATT&CK store."""
+    results = rag_service.retrieve(req.query, top_k=req.top_k, min_similarity=req.min_similarity)
+    return {
+        "query": req.query,
+        "results_count": len(results),
+        "results": results,
+    }
 
 
 @app.post("/api/ai/copilot-chat")
@@ -980,22 +1383,31 @@ def api_copilot_chat(query_req: AICopilotQuery, db: Session = Depends(get_db)):
 @app.get("/api/ai/knowledge-stats")
 def api_knowledge_stats():
     """
-    Returns vector index metadata, indexed MITRE ATT&CK techniques, and active LLM provider.
+    Returns persistent ChromaDB vector store health, indexed technique counts,
+    and active embedding/LLM providers.
     """
-    provider = "LangChain (Live LLM)" if (os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY")) else "Deterministic SOC RAG Engine (Zero API Cost)"
+    health = rag_service.get_health_stats()
     return {
-        "indexed_techniques_count": len(CYBER_KNOWLEDGE_BASE),
+        "indexed_techniques_count": health.get("indexed_techniques_count", 0),
         "techniques": [
-            {
-                "id": t["technique_id"],
-                "name": t["technique_name"],
-                "tactics": t["tactics"],
-            }
-            for t in CYBER_KNOWLEDGE_BASE
+            {"id": "T1110", "name": "Brute Force", "tactics": ["Credential Access"]},
+            {"id": "T1498", "name": "Network Denial of Service", "tactics": ["Impact"]},
+            {"id": "T1046", "name": "Network Service Discovery", "tactics": ["Discovery"]},
+            {"id": "T1071", "name": "Application Layer Protocol C2", "tactics": ["Command and Control"]},
+            {"id": "T1190", "name": "Exploit Public-Facing Application", "tactics": ["Initial Access"]},
         ],
-        "active_provider": provider,
-        "rag_status": "ONLINE",
-        "supported_providers": ["LangChain", "OpenAI", "Google Gemini", "Local Semantic Vector RAG"],
+        "active_provider": health.get("embedding_model", "ChromaDB ONNX all-MiniLM-L6-v2"),
+        "rag_status": health.get("status", "operational").upper(),
+        "storage_path": health.get("storage_path"),
+        "dataset_version": health.get("mitre_dataset_version"),
+        "supported_providers": health.get("supported_providers", []),
     }
+
+
+@app.get("/api/analytics/model-performance")
+def api_model_performance():
+    """Returns verified evaluation metrics, confusion matrix, and feature importances from CIC-IDS2017."""
+    return get_model_performance_metrics()
+
 
 

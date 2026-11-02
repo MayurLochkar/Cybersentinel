@@ -1,0 +1,24 @@
+{
+  "incident_id": "INC-LIVE-11010743-846AED",
+  "source_ip": "192.168.29.150",
+  "destination_ip": "192.168.29.93",
+  "destination_port": 80,
+  "attack_type": "Single-Source DoS (SYN Flood / Connection Exhaustion)",
+  "anomaly_telemetry": {
+    "is_anomaly": true,
+    "anomaly_type": "Single-Source DoS (SYN Flood / Connection Exhaustion)",
+    "subtype_status": "SUSPECTED",
+    "severity": "CRITICAL",
+    "source_ip": "192.168.29.150",
+    "destination_ip": "192.168.29.93",
+    "destination_port": 80,
+    "protocol": "TCP",
+    "connection_rate": 0.5,
+    "incomplete_handshakes": 3,
+    "window_seconds": 6.0,
+    "confidence": 71.5,
+    "rationale": "Rapid connection burst: 3 incomplete TCP SYN connection attempts at 0.5 conn/s over a 6.0s window targeting Port 80. Originates from single host 192.168.29.150 (Single-Source DoS simulation, not distributed DDoS).",
+    "evidence_needed": "Target server TCP backlog (netstat / ss) and edge firewall SYN drop audit."
+  },
+  "timestamp": "2026-11-01T07:43:34.648750+00:00"
+}

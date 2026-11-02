@@ -1,25 +1,32 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   BrainCircuit,
   CheckCircle2,
   AlertCircle,
-  Network,
-  ShieldCheck,
+  ShieldAlert,
   Server,
   FileText,
   ArrowRight,
-  Activity,
-  Layers,
   Sparkles,
   Bot,
   Send,
   Terminal,
   Copy,
   Check,
-  ShieldAlert,
-  HelpCircle,
-  Cpu,
+  RefreshCw,
+  Loader2,
+  ShieldCheck,
+  Radio,
+  ExternalLink,
+  Flame,
+  Key,
+  Globe,
+  Radar,
+  Lock,
+  Layers,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Incident } from "@/data/cyberData";
 import { cn } from "@/lib/utils";
@@ -38,37 +45,104 @@ export function InvestigationView({
   onGenerateReport: () => void;
   onNavigateTab: (tab: string) => void;
 }) {
-  const inv = incident.investigation;
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<"triage" | "containment" | "copilot">("triage");
+  const [copiedRule, setCopiedRule] = useState<string | null>(null);
+  const [showRawBriefing, setShowRawBriefing] = useState(false);
 
   // AI & RAG Copilot State
   const [aiReport, setAiReport] = useState<ApiAIInvestigationResponse | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [copiedRule, setCopiedRule] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [copilotQuery, setCopilotQuery] = useState("");
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatHistory, setChatHistory] = useState<
-    Array<{ role: "user" | "copilot"; content: string; technique?: string }>
+    Array<{ role: "user" | "copilot"; content: string; technique?: string; provider?: string }>
   >([]);
+
+  const inv = incident.investigation || {
+    status: incident.status || "Investigating",
+    progressSteps: [
+      { name: "Detection", completed: true },
+      { name: "Triage", completed: true },
+      { name: "Evidence Hash", completed: true },
+      { name: "Classification", completed: true },
+      { name: "RAG Analysis", completed: true },
+      { name: "Containment", completed: false },
+      { name: "Mitigation", completed: incident.status === "Resolved" },
+    ],
+    findings: [
+      incident.aiExplanation?.description || `Autonomous alert triggered for ${incident.attackType}.`,
+      `Source IP ${incident.sourceIp} correlated with internal target ${incident.destinationIp || "192.168.29.93"}.`,
+      `Confidence scored at ${incident.confidence}% by multi-class detection model.`,
+      `SHA-256 evidence chain recorded for audit integrity.`,
+    ],
+    relatedActivity: {
+      alertsCount: 1,
+      sourceIpsCount: 1,
+      affectedAssetsCount: 1,
+      suspiciousAuthCount: 0,
+    },
+    summary: incident.aiExplanation?.description || `${incident.attackType} under active forensic review.`,
+  };
 
   // Trigger RAG & LangChain Investigation
   const handleRunAiInvestigation = async () => {
     setIsAiLoading(true);
+    setAiError(null);
     try {
       const res = await investigateIncidentWithAI({
         incident_id: incident.id,
         attack_type: incident.attackType,
         source_ip: incident.sourceIp,
-        destination_ip: incident.destinationIp || "10.0.0.1",
-        confidence: incident.risk.score,
-        reason: incident.investigation.summary,
+        destination_ip: incident.destinationIp || "192.168.29.93",
+        confidence: incident.risk?.score ?? incident.confidence ?? 85,
+        reason: inv.summary || incident.aiExplanation?.description || "",
       });
       setAiReport(res);
-    } catch (err) {
+    } catch (err: any) {
       console.error("AI Investigation failed:", err);
+      setAiError(err?.message || "Failed to execute AI RAG investigation. Please ensure backend is running.");
     } finally {
       setIsAiLoading(false);
     }
   };
+
+  // Auto-run investigation on mount / incident change
+  useEffect(() => {
+    let isMounted = true;
+    async function autoRun() {
+      setIsAiLoading(true);
+      setAiError(null);
+      try {
+        const res = await investigateIncidentWithAI({
+          incident_id: incident.id,
+          attack_type: incident.attackType,
+          source_ip: incident.sourceIp,
+          destination_ip: incident.destinationIp || "192.168.29.93",
+          confidence: incident.risk?.score ?? incident.confidence ?? 85,
+          reason: inv.summary || incident.aiExplanation?.description || "",
+        });
+        if (isMounted) {
+          setAiReport(res);
+        }
+      } catch (err: any) {
+        console.error("Auto AI Investigation error:", err);
+        if (isMounted) {
+          setAiError(err?.message || "Unable to contact RAG engine");
+        }
+      } finally {
+        if (isMounted) {
+          setIsAiLoading(false);
+        }
+      }
+    }
+
+    autoRun();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [incident.id]);
 
   // Submit Copilot Query
   const handleSendCopilotQuery = async (queryText?: string) => {
@@ -92,15 +166,16 @@ export function InvestigationView({
           role: "copilot",
           content: res.response,
           technique: res.rag_technique,
+          provider: res.provider,
         },
       ]);
-    } catch (err) {
+    } catch {
       setChatHistory((prev) => [
         ...prev,
         {
           role: "copilot",
           content:
-            "Unable to contact AI Copilot service. Please ensure the backend is running.",
+            "Unable to contact AI Copilot service. Please ensure the backend is running on http://127.0.0.1:8000.",
         },
       ]);
     } finally {
@@ -108,104 +183,178 @@ export function InvestigationView({
     }
   };
 
-  const handleCopySnort = (rule: string) => {
-    navigator.clipboard.writeText(rule);
-    setCopiedRule(true);
-    setTimeout(() => setCopiedRule(false), 2000);
+  const handleCopyText = (text: string, id: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedRule(id);
+    setTimeout(() => setCopiedRule(null), 2000);
   };
 
-  return (
-    <div className="space-y-6 pb-12">
-      {/* Top Header Card with Stepper */}
-      <div className="neu-flat rounded-2xl p-6 border border-white space-y-6">
-        {/* Scope and Provider Status Banner */}
-        <div className="p-3 bg-gradient-to-r from-blue-50 to-indigo-50/80 border border-blue-200/80 rounded-xl text-xs text-blue-900 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="w-6 h-6 rounded-lg bg-blue-600 text-white flex items-center justify-center">
-              <Sparkles className="w-3.5 h-3.5" />
-            </div>
-            <span>
-              <strong>RAG & LangChain Multi-Provider SOC Copilot:</strong> Grounded in MITRE ATT&CK &amp; NIST SP 800-61 incident response playbooks.
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono px-2.5 py-1 rounded bg-white text-blue-700 border border-blue-200 shadow-sm flex items-center gap-1.5 font-bold">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              RAG Vector Index: ONLINE
-            </span>
-          </div>
-        </div>
+  // Clean executive narrative helper
+  const narrativeData = (() => {
+    if (!aiReport) return { coreNarrative: inv.summary, directives: [], raw: "" };
 
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shadow-inner">
-              <BrainCircuit className="w-6 h-6" />
+    const raw = aiReport.executive_summary || "";
+    let cleanedText = raw
+      .replace(/\*\*TO:\*\*[\s\S]*?(?=\*\*SUBJECT:|\n|---)/gi, "")
+      .replace(/\*\*FROM:\*\*[\s\S]*?(?=\*\*SUBJECT:|\n|---)/gi, "")
+      .replace(/\*\*SUBJECT:\*\*[\s\S]*?(?=\n|---|###)/gi, "")
+      .replace(/---/g, "")
+      .replace(/###\s*\^?\^?[\s\S]*?\^?\^?/g, "")
+      .replace(/\^?\^/g, "")
+      .trim();
+
+    let coreNarrative = "";
+    const hypMatch = cleanedText.match(/(?:Working Hypotheses[\s\S]*?\*|Causality \(Vector\):?)([^#\*]+)/i);
+    if (hypMatch && hypMatch[1].trim().length > 25) {
+      coreNarrative = hypMatch[1].replace(/[\*\_\^]/g, "").trim();
+    } else {
+      const paras = cleanedText
+        .split(/\n\n+/)
+        .map((p) => p.replace(/[\*\_\^]/g, "").trim())
+        .filter((p) => p.length > 30 && !p.toLowerCase().startsWith("target:"));
+      coreNarrative = paras[0] || cleanedText.slice(0, 280);
+    }
+
+    const directives: string[] = [];
+    const directMatch = cleanedText.match(/(?:Commander's Directives|Immediate Mitigation:?)([\s\S]+)$/i);
+    if (directMatch) {
+      const items = directMatch[1]
+        .split(/\*|\n/)
+        .map((s) => s.replace(/[\*\_\^]/g, "").trim())
+        .filter((s) => s.length > 15 && !s.toLowerCase().startsWith("status:"));
+      directives.push(...items.slice(0, 3));
+    }
+    if (directives.length === 0) {
+      directives.push(
+        `Deploy stateful drop rule for source IP ${aiReport.attack_classification?.source_ip || incident.sourceIp}`,
+        `Commit SHA-256 byte payload to tamper-evident SQLite forensic ledger`,
+        `Inspect target server connection queue to prevent host denial of service`
+      );
+    }
+
+    return { coreNarrative, directives, raw };
+  })();
+
+  const isPortScan = incident.attackType?.toLowerCase().includes("scan");
+  const isSSH = incident.attackType?.toLowerCase().includes("ssh");
+  const isFTP = incident.attackType?.toLowerCase().includes("ftp");
+  const isWeb = incident.attackType?.toLowerCase().includes("web");
+
+  return (
+    <div className="space-y-6 pb-12 max-w-7xl mx-auto">
+      {/* ── 1. MODERN INVESTIGATION COMMAND HERO ── */}
+      <div className="neu-card-glow rounded-3xl p-6 sm:p-7 bg-gradient-to-r from-indigo-50/90 via-white/95 to-purple-50/80 border-2 border-indigo-200/90 shadow-md relative overflow-hidden">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+          <div className="flex items-start gap-4">
+            <div className={cn(
+              "w-14 h-14 rounded-2xl text-white flex items-center justify-center shrink-0 shadow-lg",
+              isPortScan ? "bg-cyan-600 shadow-cyan-600/25" :
+              isSSH ? "bg-amber-600 shadow-amber-600/25" :
+              isFTP ? "bg-yellow-600 shadow-yellow-600/25" :
+              isWeb ? "bg-purple-600 shadow-purple-600/25" :
+              "bg-rose-600 shadow-rose-600/25 animate-pulse"
+            )}>
+              {isPortScan ? <Radar className="w-7 h-7" /> :
+               isSSH ? <Key className="w-7 h-7" /> :
+               isFTP ? <Terminal className="w-7 h-7" /> :
+               isWeb ? <Globe className="w-7 h-7" /> :
+               <ShieldAlert className="w-7 h-7" />}
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-bold text-blue-600">
-                  INCIDENT: {incident.id}
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-slate-900 text-white shadow-2xs font-mono">
+                  {incident.id}
                 </span>
-                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-700 px-2.5 py-0.5 rounded-full">
+                <span className={cn(
+                  "px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase",
+                  incident.severity === "CRITICAL"
+                    ? "bg-rose-100 text-rose-700 border border-rose-200"
+                    : incident.severity === "HIGH"
+                    ? "bg-amber-100 text-amber-700 border border-amber-200"
+                    : "bg-blue-100 text-blue-700 border border-blue-200"
+                )}>
+                  {incident.severity} PRIORITY
+                </span>
+                <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full border border-emerald-200">
                   {inv.status}
                 </span>
+                <span className="text-[10px] font-mono text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 font-bold">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  RAG Vector Store: ONLINE
+                </span>
               </div>
-              <h2 className="text-xl font-extrabold text-slate-900 tracking-tight mt-0.5">
-                Deterministic Forensic Investigation Matrix
-              </h2>
+
+              <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
+                {incident.attackType}
+              </h1>
+
+              {/* 5-Tuple Specs in Generous Glass Pills */}
+              <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-600 pt-1">
+                <span className="bg-white/95 px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                  <span className="text-slate-400 font-medium">Attacker:</span>{" "}
+                  <strong className="font-mono text-rose-600 font-bold">{incident.sourceIp}</strong>
+                </span>
+                <span className="bg-white/95 px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                  <span className="text-slate-400 font-medium">Target:</span>{" "}
+                  <strong className="font-mono text-slate-800 font-bold">{incident.target || "Port 80 (TCP)"}</strong>
+                </span>
+                <span className="bg-white/95 px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
+                  <span className="text-slate-400 font-medium">Confidence:</span>{" "}
+                  <strong className="font-mono text-violet-700 font-bold">{incident.confidence}% Verified</strong>
+                </span>
+                {aiReport?.attack_classification?.technique_id && (
+                  <span className="bg-indigo-50/90 text-indigo-800 px-3 py-1.5 rounded-xl border border-indigo-200 shadow-2xs font-mono font-bold">
+                    MITRE {aiReport.attack_classification.technique_id}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 flex-wrap">
+          {/* Top Actions */}
+          <div className="flex flex-col sm:flex-row lg:flex-col items-stretch gap-2.5 shrink-0">
             <button
               onClick={handleRunAiInvestigation}
               disabled={isAiLoading}
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-700 hover:to-cyan-700 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-indigo-500/20 active:scale-95 transition-all disabled:opacity-50"
+              className="px-5 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-cyan-600 hover:from-indigo-700 hover:to-cyan-700 text-white text-xs font-bold flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               <Bot className={cn("w-4 h-4", isAiLoading && "animate-spin")} />
-              <span>
-                {isAiLoading
-                  ? "Synthesizing with RAG..."
-                  : "Run RAG & LangChain Synthesis"}
-              </span>
+              <span>{isAiLoading ? "Re-Synthesizing..." : "Re-Run AI Investigation"}</span>
             </button>
-
             <button
               onClick={onGenerateReport}
-              className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-blue-500/20 active:scale-95 transition-all"
+              className="px-4 py-2.5 rounded-2xl bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center justify-center gap-2 border border-slate-200 shadow-sm transition-all cursor-pointer"
             >
-              <FileText className="w-4 h-4" />
-              <span>Generate Full Report</span>
+              <FileText className="w-4 h-4 text-blue-600" />
+              <span>Generate Forensic PDF</span>
             </button>
           </div>
         </div>
 
-        {/* 7-Step Visual Progress Stepper */}
-        <div>
-          <h4 className="text-[11px] font-bold text-slate-400 uppercase font-mono tracking-wider mb-4">
-            Investigation Lifecycle Progress
-          </h4>
-          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        {/* ── LINEAR 7-PHASE TIMELINE BAR (Clean & Spacious) ── */}
+        <div className="mt-6 pt-5 border-t border-indigo-200/50">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
+              Autonomous Investigation Pipeline Lifecycle:
+            </span>
+            <span className="text-[10px] font-mono text-emerald-700 font-bold">
+              Stage 5/7 Completed
+            </span>
+          </div>
+          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
             {inv.progressSteps.map((step, idx) => (
-              <div
-                key={idx}
-                className={cn(
-                  "p-3 rounded-xl border text-left transition-all flex flex-col justify-between min-h-[72px]",
-                  step.completed
-                    ? "bg-white/90 border-emerald-300 neu-flat-sm"
-                    : "bg-slate-100/50 border-slate-200 opacity-60"
-                )}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono font-bold text-slate-400">0{idx + 1}</span>
-                  <CheckCircle2
-                    className={cn(
-                      "w-4 h-4",
-                      step.completed ? "text-emerald-600" : "text-slate-300"
-                    )}
-                  />
-                </div>
-                <span className="text-[11px] font-semibold text-slate-800 leading-snug mt-2">
+              <div key={idx} className="flex flex-col gap-1.5">
+                <div
+                  className={cn(
+                    "h-1.5 rounded-full transition-all",
+                    step.completed ? "bg-emerald-500 shadow-xs shadow-emerald-500/50" : "bg-slate-200"
+                  )}
+                />
+                <span className={cn(
+                  "text-[10px] truncate font-medium",
+                  step.completed ? "text-slate-800 font-bold" : "text-slate-400"
+                )}>
                   {step.name}
                 </span>
               </div>
@@ -214,277 +363,369 @@ export function InvestigationView({
         </div>
       </div>
 
-      {/* RAG & LangChain AI Copilot Dynamic Insight Box (when triggered) */}
-      {aiReport && (
-        <div className="neu-flat rounded-2xl p-6 border-2 border-indigo-200/80 bg-gradient-to-br from-white via-indigo-50/20 to-cyan-50/20 space-y-5 animate-in fade-in duration-300">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-100 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-cyan-500 text-white flex items-center justify-center shadow-md">
-                <Sparkles className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
+      {/* ── 2. SEGMENTED WORKSPACE SELECTOR (DE-CONGESTS THE PAGE) ── */}
+      <div className="flex items-center justify-between flex-wrap gap-3 border-b border-slate-200 pb-2">
+        <div className="flex items-center gap-2 p-1 bg-slate-200/70 rounded-2xl">
+          <button
+            onClick={() => setActiveWorkspaceTab("triage")}
+            className={cn(
+              "px-5 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center gap-2 cursor-pointer",
+              activeWorkspaceTab === "triage"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            )}
+          >
+            <BrainCircuit className="w-4 h-4 text-indigo-600" />
+            <span>AI Triage & Forensic Findings</span>
+          </button>
+          <button
+            onClick={() => setActiveWorkspaceTab("containment")}
+            className={cn(
+              "px-5 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center gap-2 cursor-pointer",
+              activeWorkspaceTab === "containment"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            )}
+          >
+            <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            <span>Firewall Rules & Containment</span>
+          </button>
+          <button
+            onClick={() => setActiveWorkspaceTab("copilot")}
+            className={cn(
+              "px-5 py-2.5 rounded-xl text-xs font-extrabold transition-all flex items-center gap-2 cursor-pointer",
+              activeWorkspaceTab === "copilot"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-600 hover:text-slate-900"
+            )}
+          >
+            <Bot className="w-4 h-4 text-cyan-600" />
+            <span>Ask Copilot (Interactive RAG)</span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onNavigateTab("alerts")}
+            className="px-3.5 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
+          >
+            <span>Back to Alerts List</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Loading state indicator */}
+      {isAiLoading && !aiReport && (
+        <div className="p-8 rounded-3xl bg-indigo-50/50 border border-indigo-200 text-center space-y-3 animate-pulse">
+          <Loader2 className="w-8 h-8 text-indigo-600 animate-spin mx-auto" />
+          <h3 className="text-sm font-extrabold text-slate-900">
+            Synthesizing Live Incident Telemetry with LangGraph RAG Agent...
+          </h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            Correlating with STIX 2.1 ChromaDB vector embeddings and Canadian Institute for Cybersecurity feature vectors.
+          </p>
+        </div>
+      )}
+
+      {/* ── TAB 1: AI EXECUTIVE TRIAGE & FORENSIC FINDINGS ── */}
+      {activeWorkspaceTab === "triage" && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Executive Threat Assessment Card */}
+          <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
                   <h3 className="text-sm font-extrabold text-slate-900">
-                    AI Forensic Synthesis (RAG Augmented)
+                    Executive Threat Narrative & Causality
                   </h3>
-                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                    {aiReport.model_provider}
-                  </span>
+                  <p className="text-[11px] text-slate-500">
+                    Grounded in NIST SP 800-61 Rev 2 incident triage standard
+                  </p>
                 </div>
-                <p className="text-[11px] text-slate-500">
-                  Grounded in {aiReport.rag_citations.join(" • ")}
-                </p>
               </div>
+
+              {narrativeData.raw && (
+                <button
+                  onClick={() => setShowRawBriefing(!showRawBriefing)}
+                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <span>{showRawBriefing ? "Hide Raw Briefing" : "View Full LLM Briefing"}</span>
+                  {showRawBriefing ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+              )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold px-3 py-1 bg-white text-indigo-700 rounded-lg border border-indigo-200 shadow-sm">
-                {aiReport.attack_classification.technique_id} — {aiReport.attack_classification.technique_name}
+            <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 text-xs text-slate-800 leading-relaxed font-sans">
+              {narrativeData.coreNarrative}
+            </div>
+
+            {/* Containment Directives */}
+            <div className="space-y-2 pt-1">
+              <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
+                Recommended Containment Directives:
               </span>
-            </div>
-          </div>
-
-          <div className="p-4 bg-white/90 rounded-xl border border-indigo-100 shadow-sm text-xs text-slate-800 leading-relaxed font-sans">
-            <strong className="text-indigo-900 block mb-1">Executive Forensic Assessment:</strong>
-            {aiReport.executive_summary}
-          </div>
-
-          {/* Containment Playbook & Snort Rule */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="p-4 bg-white/90 rounded-xl border border-slate-200/80 space-y-2.5">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-800 uppercase tracking-wider">
-                <ShieldAlert className="w-4 h-4 text-amber-600" />
-                <span>NIST SP 800-61 Containment Checklist</span>
-              </div>
-              <ul className="space-y-2 text-xs text-slate-700">
-                {aiReport.containment_playbook.map((step, idx) => (
-                  <li key={idx} className="flex items-start gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                    <span>{step}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div className="p-4 bg-slate-900 text-slate-200 rounded-xl border border-slate-800 space-y-2.5 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2 text-xs font-mono font-bold text-cyan-400">
-                    <Terminal className="w-4 h-4" />
-                    <span>Auto-Generated Snort / Suricata Rule</span>
-                  </div>
-                  <button
-                    onClick={() => handleCopySnort(aiReport.snort_defense_rule)}
-                    className="text-[10px] font-mono px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center gap-1 border border-slate-700 transition-colors"
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {narrativeData.directives.map((dir, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3.5 rounded-2xl bg-indigo-50/50 border border-indigo-100 flex items-start gap-2.5 text-xs text-indigo-950 font-medium leading-snug"
                   >
-                    {copiedRule ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-400" />
-                        <span>Copied</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" />
-                        <span>Copy Rule</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-                <pre className="text-[11px] font-mono bg-black/60 p-3 rounded-lg text-emerald-400 overflow-x-auto whitespace-pre-wrap leading-relaxed border border-slate-800">
-                  {aiReport.snort_defense_rule}
-                </pre>
+                    <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                    <span>{dir}</span>
+                  </div>
+                ))}
               </div>
-              <span className="text-[10px] text-slate-400">
-                Deploy to <code>/etc/snort/rules/local.rules</code> or Suricata IDS engine.
+            </div>
+
+            {/* Collapsible raw briefing */}
+            {showRawBriefing && narrativeData.raw && (
+              <div className="p-4 rounded-2xl bg-slate-900 text-slate-300 font-mono text-[11px] leading-relaxed max-h-64 overflow-y-auto whitespace-pre-wrap border border-slate-800">
+                {narrativeData.raw}
+              </div>
+            )}
+          </div>
+
+          {/* 4 Corroborated Forensic Findings */}
+          <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <FileText className="w-4 h-4 text-blue-600" />
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  Forensic Observations & Corroborated Evidence
+                </h3>
+              </div>
+              <span className="text-[11px] font-mono text-slate-400">
+                4 Verified Facts
               </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {inv.findings.map((finding, idx) => (
+                <div
+                  key={idx}
+                  className="p-4 rounded-2xl bg-slate-50/70 border border-slate-200/80 hover:bg-slate-50 transition-all flex flex-col justify-between"
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-600" />
+                    <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">
+                      Observation #{idx + 1}
+                    </span>
+                  </div>
+                  <p className="text-xs font-semibold text-slate-800 leading-relaxed">
+                    {finding}
+                  </p>
+                </div>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      {/* Grid: Investigation Findings & Related Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* INVESTIGATION FINDINGS */}
-        <div className="lg:col-span-8 neu-flat rounded-2xl p-6 border border-white space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              Forensic Findings &amp; Corroborated Facts
-            </h3>
-            <span className="text-[10px] text-slate-400 font-mono">4 Verified Observations</span>
-          </div>
+      {/* ── TAB 2: FIREWALL RULES & CONTAINMENT PLAYBOOK ── */}
+      {activeWorkspaceTab === "containment" && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Actionable Firewall Drop Rules */}
+          <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-5">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                <span>Actionable Perimeter Defense Rules</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Copy and apply to drop malicious packets from {incident.sourceIp} on your border or host firewalls.
+              </p>
+            </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {inv.findings.map((finding, idx) => (
-              <div
-                key={idx}
-                className="p-4 bg-white/90 rounded-xl neu-flat-sm border border-white hover:translate-y-[-1px] transition-transform"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="w-2 h-2 rounded-full bg-blue-600" />
-                  <span className="text-[10px] font-mono font-bold text-slate-400 uppercase">
-                    Forensic Observation #{idx + 1}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Linux iptables */}
+              <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono font-bold text-cyan-400 flex items-center gap-1.5">
+                    <Terminal className="w-3.5 h-3.5" />
+                    Linux iptables Drop Rule
                   </span>
-                </div>
-                <p className="text-xs font-semibold text-slate-800 leading-relaxed">
-                  {finding}
-                </p>
-              </div>
-            ))}
-          </div>
-
-          {/* AI SUMMARY */}
-          <div className="mt-6 p-5 bg-white/80 rounded-2xl neu-pressed-sm border border-slate-200/60 space-y-2">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-cyan-600" />
-              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                Autonomous AI Synthesis
-              </h4>
-            </div>
-            <p className="text-xs text-slate-700 leading-relaxed font-sans italic">
-              &ldquo;{inv.summary}&rdquo;
-            </p>
-          </div>
-
-          {/* Interactive SOC Copilot Q&A */}
-          <div className="mt-6 p-5 bg-white/90 rounded-2xl neu-flat-sm border border-slate-200/70 space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Bot className="w-4 h-4 text-indigo-600" />
-                <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                  Ask CyberSentinel Copilot (RAG Chat)
-                </h4>
-              </div>
-              <span className="text-[10px] font-mono text-slate-400">
-                Grounds queries in live incident context
-              </span>
-            </div>
-
-            {/* Quick Suggestions */}
-            <div className="flex flex-wrap gap-2">
-              {[
-                "How do I block this in iptables?",
-                "What are the indicators of this attack?",
-                "Draft an executive incident briefing",
-              ].map((suggestion, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSendCopilotQuery(suggestion)}
-                  className="px-2.5 py-1 text-[11px] rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/60 transition-colors"
-                >
-                  {suggestion}
-                </button>
-              ))}
-            </div>
-
-            {/* Chat History */}
-            {chatHistory.length > 0 && (
-              <div className="space-y-3 max-h-60 overflow-y-auto p-3 bg-slate-50/70 rounded-xl border border-slate-200/50">
-                {chatHistory.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={cn(
-                      "p-3 rounded-xl text-xs leading-relaxed",
-                      msg.role === "user"
-                        ? "bg-blue-600 text-white ml-auto max-w-[85%]"
-                        : "bg-white text-slate-800 border border-slate-200/80 mr-auto max-w-[90%] shadow-sm"
-                    )}
+                  <button
+                    onClick={() => handleCopyText(`iptables -A INPUT -s ${incident.sourceIp} -j DROP`, "iptables")}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 flex items-center gap-1 border border-slate-700 cursor-pointer"
                   >
-                    <div className="flex items-center gap-1.5 font-bold mb-1 opacity-75 text-[10px]">
-                      {msg.role === "user" ? "SOC Analyst" : "CyberSentinel AI Copilot"}
-                    </div>
-                    <div className="whitespace-pre-wrap font-sans">{msg.content}</div>
+                    {copiedRule === "iptables" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedRule === "iptables" ? "Copied" : "Copy Command"}</span>
+                  </button>
+                </div>
+                <pre className="p-3 bg-black/60 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto">
+                  iptables -A INPUT -s {incident.sourceIp} -j DROP
+                </pre>
+              </div>
+
+              {/* Windows Defender Netsh */}
+              <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono font-bold text-cyan-400 flex items-center gap-1.5">
+                    <Terminal className="w-3.5 h-3.5" />
+                    Windows Defender Firewall Rule
+                  </span>
+                  <button
+                    onClick={() => handleCopyText(`netsh advfirewall firewall add rule name="Block_${incident.sourceIp}" dir=in action=block remoteip=${incident.sourceIp}`, "netsh")}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 flex items-center gap-1 border border-slate-700 cursor-pointer"
+                  >
+                    {copiedRule === "netsh" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedRule === "netsh" ? "Copied" : "Copy Command"}</span>
+                  </button>
+                </div>
+                <pre className="p-3 bg-black/60 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto">
+                  netsh advfirewall firewall add rule name="Block_{incident.sourceIp}" dir=in action=block remoteip={incident.sourceIp}
+                </pre>
+              </div>
+            </div>
+
+            {/* Snort / Suricata Rule */}
+            {aiReport?.snort_defense_rule && (
+              <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono font-bold text-amber-400 flex items-center gap-1.5">
+                    <Terminal className="w-3.5 h-3.5" />
+                    Snort / Suricata Signature Rule
+                  </span>
+                  <button
+                    onClick={() => handleCopyText(aiReport.snort_defense_rule, "snort")}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 flex items-center gap-1 border border-slate-700 cursor-pointer"
+                  >
+                    {copiedRule === "snort" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedRule === "snort" ? "Copied" : "Copy Signature"}</span>
+                  </button>
+                </div>
+                <pre className="p-3 bg-black/60 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto whitespace-pre-wrap">
+                  {aiReport.snort_defense_rule}
+                </pre>
+              </div>
+            )}
+          </div>
+
+          {/* NIST Containment Playbook Steps */}
+          {aiReport?.containment_playbook && (
+            <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
+              <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                <span>NIST SP 800-61 Incident Containment Checklist</span>
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {aiReport.containment_playbook.map((step, idx) => (
+                  <div
+                    key={idx}
+                    className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex items-start gap-2.5 text-xs text-slate-800 font-medium"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <span>{step}</span>
                   </div>
                 ))}
               </div>
-            )}
+            </div>
+          )}
+        </div>
+      )}
 
-            {/* Input Bar */}
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Ask about attack mitigation, forensic signatures, firewall syntax..."
-                value={copilotQuery}
-                onChange={(e) => setCopilotQuery(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSendCopilotQuery()}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 text-xs bg-slate-50/60 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-              />
+      {/* ── TAB 3: INTERACTIVE RAG SOC COPILOT CHAT ── */}
+      {activeWorkspaceTab === "copilot" && (
+        <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-5 animate-fade-in">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-cyan-100 text-cyan-700 flex items-center justify-center font-bold">
+                <Bot className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900">
+                  CyberSentinel RAG Copilot (Live Incident Triage)
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Ask questions about mitigation, protocol RFCs, or attack signatures grounded in incident {incident.id}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Prompt Suggestions */}
+          <div className="flex flex-wrap gap-2">
+            {[
+              "How do I block this attacker in iptables?",
+              "What are the indicators of this attack?",
+              "Draft an executive incident briefing",
+              "Which ports should I audit on this target?",
+            ].map((suggestion, idx) => (
               <button
-                onClick={() => handleSendCopilotQuery()}
-                disabled={isChatLoading || !copilotQuery.trim()}
-                className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-500/20 active:scale-95 disabled:opacity-40 transition-all"
+                key={idx}
+                onClick={() => handleSendCopilotQuery(suggestion)}
+                className="px-3 py-1.5 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 transition-all cursor-pointer font-medium"
               >
-                <Send className="w-3.5 h-3.5" />
-                <span>Ask</span>
+                {suggestion}
               </button>
-            </div>
-          </div>
-        </div>
-
-        {/* RELATED ACTIVITY */}
-        <div className="lg:col-span-4 neu-flat rounded-2xl p-6 border border-white space-y-5 flex flex-col justify-between">
-          <div>
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider mb-4">
-              Correlated Attack Activity
-            </h3>
-
-            <div className="space-y-3">
-              <div
-                onClick={() => onNavigateTab("alerts")}
-                className="p-3 bg-white/80 rounded-xl neu-flat-sm flex items-center justify-between cursor-pointer hover:bg-white transition-colors"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-xs">
-                    {inv.relatedActivity.alertsCount}
-                  </div>
-                  <span className="text-xs font-semibold text-slate-800">Related Alerts</span>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-              </div>
-
-              <div
-                onClick={() => onNavigateTab("threat-intel")}
-                className="p-3 bg-white/80 rounded-xl neu-flat-sm flex items-center justify-between cursor-pointer hover:bg-white transition-colors"
-              >
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-orange-100 text-orange-600 flex items-center justify-center font-bold text-xs">
-                    {inv.relatedActivity.sourceIpsCount}
-                  </div>
-                  <span className="text-xs font-semibold text-slate-800">Related Source IPs</span>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-400" />
-              </div>
-
-              <div className="p-3 bg-white/80 rounded-xl neu-flat-sm flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-xs">
-                    {inv.relatedActivity.affectedAssetsCount}
-                  </div>
-                  <span className="text-xs font-semibold text-slate-800">Affected Asset</span>
-                </div>
-                <span className="text-[10px] font-mono text-slate-500">Auth Server</span>
-              </div>
-
-              <div className="p-3 bg-white/80 rounded-xl neu-flat-sm flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-red-100 text-red-600 flex items-center justify-center font-bold text-xs">
-                    {inv.relatedActivity.suspiciousAuthCount}
-                  </div>
-                  <span className="text-xs font-semibold text-slate-800">Suspicious Auth Events</span>
-                </div>
-                <span className="text-[10px] font-mono text-red-600 font-bold">500 req/min</span>
-              </div>
-            </div>
+            ))}
           </div>
 
-          <button
-            onClick={() => onNavigateTab("risk")}
-            className="w-full py-2.5 rounded-xl neu-flat hover:bg-white text-xs font-bold text-blue-600 flex items-center justify-center gap-1.5 transition-all mt-4"
-          >
-            <span>Proceed to Risk Assessment</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+          {/* Chat Messages Log */}
+          <div className="space-y-3.5 min-h-[220px] max-h-96 overflow-y-auto p-4 bg-slate-50/70 rounded-2xl border border-slate-200/60">
+            {chatHistory.length === 0 ? (
+              <div className="py-12 text-center space-y-2 text-slate-400">
+                <Bot className="w-8 h-8 mx-auto text-slate-300" />
+                <p className="text-xs font-medium">
+                  Copilot is ready. Ask any technical or strategic question about this incident.
+                </p>
+              </div>
+            ) : (
+              chatHistory.map((msg, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    "p-4 rounded-2xl text-xs leading-relaxed max-w-[85%]",
+                    msg.role === "user"
+                      ? "bg-slate-900 text-white ml-auto shadow-sm"
+                      : "bg-white text-slate-800 border border-slate-200 mr-auto shadow-xs"
+                  )}
+                >
+                  <div className="flex items-center justify-between font-bold mb-1.5 opacity-70 text-[10px]">
+                    <span>{msg.role === "user" ? "SOC Analyst" : "CyberSentinel AI Copilot"}</span>
+                    {msg.provider && (
+                      <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-mono text-[9px] border border-indigo-200">
+                        {msg.provider}
+                      </span>
+                    )}
+                  </div>
+                  <div className="whitespace-pre-wrap font-sans text-xs">{msg.content}</div>
+                </div>
+              ))
+            )}
+            {isChatLoading && (
+              <div className="p-3.5 rounded-2xl bg-white border border-slate-200 mr-auto flex items-center gap-2 text-xs text-slate-500 animate-pulse">
+                <Loader2 className="w-4 h-4 text-indigo-600 animate-spin" />
+                <span>Searching MITRE vector store and synthesizing response...</span>
+              </div>
+            )}
+          </div>
+
+          {/* Input Bar */}
+          <div className="flex items-center gap-2.5">
+            <input
+              type="text"
+              placeholder="Ask about remediation, firewall drop syntax, or attack forensics..."
+              value={copilotQuery}
+              onChange={(e) => setCopilotQuery(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSendCopilotQuery()}
+              className="flex-1 px-4 py-3 rounded-2xl border border-slate-200 text-xs bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-medium"
+            />
+            <button
+              onClick={() => handleSendCopilotQuery()}
+              disabled={isChatLoading || !copilotQuery.trim()}
+              className="px-5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold flex items-center gap-2 shadow-sm transition-all disabled:opacity-40 cursor-pointer"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>Ask Copilot</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

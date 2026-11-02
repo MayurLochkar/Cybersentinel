@@ -1,0 +1,13 @@
+{
+  "incident_id": "INC-LIVE-10311117-C1FD68",
+  "source_ip": "192.168.29.127",
+  "destination_ip": "192.168.29.93",
+  "destination_port": 8000,
+  "attack_type": "Single-Source DoS (SYN Flood / Connection Exhaustion)",
+  "anomaly_telemetry": {
+    "incomplete_handshakes": 40,
+    "connection_rate": 28.5,
+    "severity": "CRITICAL"
+  },
+  "timestamp": "2026-10-31T11:39:53.384581+00:00"
+}

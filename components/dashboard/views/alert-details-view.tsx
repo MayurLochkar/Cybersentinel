@@ -59,7 +59,8 @@ export function AlertDetailsView({
     }
   };
 
-  const displayDestIp = incident.destinationIp || "10.0.0.21";
+  const displayDestIp = incident.destinationIp || "192.168.29.93";
+  const displayPort = incident.port || 8000;
 
   return (
     <div className="space-y-6 pb-12">
@@ -174,7 +175,7 @@ export function AlertDetailsView({
         </div>
         <div className="neu-flat-sm rounded-xl p-3.5 bg-white/70 border border-white">
           <span className="text-[10px] text-slate-400 font-mono block">DEST PORT</span>
-          <span className="text-xs font-bold font-mono text-slate-800">{incident.port}</span>
+          <span className="text-xs font-bold font-mono text-slate-800">{displayPort}</span>
         </div>
         <div className="neu-flat-sm rounded-xl p-3.5 bg-white/70 border border-white">
           <span className="text-[10px] text-slate-400 font-mono block">MODEL CONFIDENCE</span>
@@ -212,7 +213,7 @@ export function AlertDetailsView({
             </span>{" "}
             targeting{" "}
             <span className="font-mono font-bold text-slate-900 bg-slate-100 px-1 py-0.5 rounded">
-              {displayDestIp}:{incident.port}
+              {displayDestIp}:{displayPort}
             </span>{" "}
             via protocol <span className="font-bold">{incident.protocol}</span>.
           </p>

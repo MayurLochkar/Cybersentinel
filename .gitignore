@@ -54,3 +54,4 @@ __pycache__/
 backend/ml/data/raw/*.csv
 backend/data/*.csv
 backend/*.db
+*.bak

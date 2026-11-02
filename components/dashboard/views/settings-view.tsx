@@ -62,7 +62,7 @@ export function SettingsView() {
           </div>
           <div className="p-3 bg-white/80 rounded-xl neu-pressed-sm">
             <span className="text-[10px] text-slate-400 font-mono block">ORGANIZATION</span>
-            <span className="font-bold text-slate-800">Demo Financial Services Inc.</span>
+            <span className="font-bold text-slate-800">CyberSentinel Enterprise SOC</span>
           </div>
           <div className="p-3 bg-white/80 rounded-xl neu-pressed-sm">
             <span className="text-[10px] text-slate-400 font-mono block">GATEWAY STATUS</span>

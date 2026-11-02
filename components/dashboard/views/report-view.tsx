@@ -180,11 +180,11 @@ export function ReportDetailView({
             4. Prescribed Remediation Recommendations
           </h3>
           <ol className="space-y-2 text-xs text-slate-800 list-decimal list-inside font-medium leading-relaxed">
-            <li>Review affected user accounts and enforce immediate session invalidation.</li>
-            <li>Analyse authentication logs to confirm whether credentials were leaked.</li>
-            <li>Increase monitoring for the source IP 185.73.21.10 across upstream border routers.</li>
-            <li>Check for successful authentication attempts originating from proximate ASN nodes.</li>
-            <li>Review other systems and API gateways targeted by the source actor.</li>
+            <li>Review affected service ports and enforce rate-limiting / connection quotas.</li>
+            <li>Inspect TCP state tables to confirm socket backlog exhaustion status.</li>
+            <li>Increase monitoring for the source IP {incident.sourceIp} across host and border firewalls.</li>
+            <li>Apply host-based firewall isolation or SYN cookie protection on port {incident.port || 8000}.</li>
+            <li>Correlate live telemetry with MITRE ATT&CK {incident.mitre.techniqueId} playbook.</li>
           </ol>
         </div>
 
@@ -195,9 +195,9 @@ export function ReportDetailView({
           </h3>
           <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-xs flex items-center justify-between">
             <div className="space-y-1 font-mono">
-              <div className="text-slate-700 font-bold">File: {incident.evidenceFile}</div>
+              <div className="text-slate-700 font-bold">File: {incident.evidenceFile || "telemetry_inc_live_10311117_c1fd68.json"}</div>
               <div className="text-[11px] text-slate-500 break-all">
-                SHA-256: 8f4a9d7c8e2354aa014d5f3089b210d7a04bc61922ef6a81e91ab
+                SHA-256: c41dfca26fc0f988e421212cab718563fc89a5ebea2416a51921cb6b2bc3f51c
               </div>
             </div>
             <div className="px-3 py-1 bg-emerald-600 text-white font-extrabold text-[10px] rounded-full uppercase font-mono tracking-wider">

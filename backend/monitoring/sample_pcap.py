@@ -76,6 +76,13 @@ def generate_sample_pcap_bytes() -> bytes:
     p_scan2.time = base_time + 3.000070  # 70us duration matches CICIDS2017 PortScan
     packets.extend([p_scan1, p_scan2])
 
+    # Flow 5: Authentic DoS High-Velocity SYN Burst Flow (192.168.1.185 -> 10.0.0.1:80)
+    # High packet rate, zero ack, asymmetric flag distribution matching CICIDS2017 DoS
+    for i in range(25):
+        dos_pkt = IP(src="192.168.1.185", dst="10.0.0.1") / TCP(sport=50000 + (i % 4), dport=80, flags="S", seq=100000 + i, window=1024)
+        dos_pkt.time = base_time + 4.000 + (i * 0.001)  # 1ms burst interval
+        packets.append(dos_pkt)
+
     import os
     import tempfile
 

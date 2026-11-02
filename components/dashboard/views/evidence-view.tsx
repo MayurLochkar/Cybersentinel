@@ -40,6 +40,17 @@ export function EvidenceView() {
 
   useEffect(() => {
     loadEvidence();
+    const handleRefresh = () => {
+      loadEvidence();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("cybersentinel-refresh-all", handleRefresh);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("cybersentinel-refresh-all", handleRefresh);
+      }
+    };
   }, []);
 
   // Map backend items to UI

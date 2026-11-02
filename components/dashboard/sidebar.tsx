@@ -65,15 +65,24 @@ export function DashboardSidebar({
       }
     }
     loadCounts();
+    const handleGlobalRefresh = () => {
+      loadCounts();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("cybersentinel-refresh-all", handleGlobalRefresh);
+    }
     const interval = setInterval(loadCounts, 5000);
     return () => {
       isMounted = false;
       clearInterval(interval);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("cybersentinel-refresh-all", handleGlobalRefresh);
+      }
     };
   }, []);
 
-  const totalAlertsStr = summary !== null ? String(summary.total_alerts) : "—";
-  const critAlertsStr = summary !== null ? `${summary.critical} Crit` : "—";
+  const totalAlertsStr = summary !== null && summary.total_alerts > 0 ? String(summary.total_alerts) : undefined;
+  const critAlertsStr = summary !== null && summary.critical > 0 ? `${summary.critical} Crit` : summary !== null && summary.high_risk > 0 ? `${summary.high_risk} High` : undefined;
 
   const navItems = [
     { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" /> },

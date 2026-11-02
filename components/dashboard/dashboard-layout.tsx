@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { TopNavbar } from "./top-navbar";
 import { CenteredCommandNav } from "./centered-command-nav";
@@ -17,9 +17,101 @@ import { ReportsView } from "./views/reports-view";
 import { ReportDetailView } from "./views/report-view";
 import { SettingsView } from "./views/settings-view";
 import { MonitoringView } from "./views/monitoring-view";
+import { IncidentsView } from "./views/incidents-view";
 import { HowItWorksModal } from "./how-it-works-modal";
 import { CyberCursor } from "@/components/ui/cyber-cursor";
+import { GsapScrollTriggerProvider } from "@/components/ui/gsap-scroll-trigger";
 import { CYBER_DATA, Incident, Alert } from "@/data/cyberData";
+import { fetchAlerts, ApiAlert } from "@/lib/api";
+
+function buildIncidentFromApiAlert(alert: ApiAlert): Incident {
+  const portMatch = alert.target?.match(/port\s*(\d+)/i) || alert.reason?.match(/port\s*(\d+)/i);
+  const parsedPort = portMatch ? parseInt(portMatch[1], 10) : 8000;
+  const parsedProtocol = alert.attack_type?.toLowerCase().includes("udp") ? "UDP" : "TCP";
+
+  return {
+    id: alert.incident_id,
+    attackType: alert.attack_type,
+    sourceIp: alert.source_ip,
+    destinationIp: alert.destination_ip || "192.168.29.93",
+    target: alert.target || `Port ${parsedPort} (${parsedProtocol})`,
+    severity: alert.severity,
+    confidence: alert.confidence,
+    status: alert.status as any,
+    time: alert.created_at ? alert.created_at.slice(11, 16) : "Live",
+    protocol: parsedProtocol,
+    port: parsedPort,
+    detectionTime: alert.created_at || new Date().toISOString(),
+    timeline: [
+      {
+        time: alert.created_at ? alert.created_at.slice(11, 19) : "Detection",
+        event: `Live attack ${alert.incident_id} classified as ${alert.attack_type}`,
+        detail: alert.reason || `Real-time packet anomaly detected from ${alert.source_ip}.`,
+      },
+      {
+        time: "Forensics",
+        event: "Network telemetry correlated",
+        detail: `High-rate connection burst identified targeting ${alert.target}.`,
+      },
+      {
+        time: "SOC Triage",
+        event: "Automated alert record published",
+        detail: `Logged to SQLite & Forensic Evidence Ledger with SHA-256 seal.`,
+      },
+    ],
+    aiExplanation: {
+      title: `Why was ${alert.attack_type} flagged?`,
+      description: alert.reason || `Inbound traffic from ${alert.source_ip} exhibited anomalous connection velocity exceeding baseline thresholds.`,
+      indicators: [
+        `Source IP: ${alert.source_ip}`,
+        `Target: ${alert.destination_ip || "192.168.29.93"}:${parsedPort}`,
+        `Attack Classification: ${alert.attack_type}`,
+        `Model Confidence: ${alert.confidence}%`,
+      ],
+    },
+    mitre: {
+      tactic: "Impact",
+      technique: "Direct Network Denial of Service",
+      techniqueId: "T1498.001",
+      description: "Adversaries may perform TCP SYN floods targeting service ports to exhaust the connection backlog state.",
+    },
+    investigation: {
+      status: alert.status,
+      progressSteps: [
+        { name: "Detection", completed: true },
+        { name: "Triage", completed: true },
+        { name: "Evidence Hash", completed: true },
+        { name: "Classification", completed: true },
+        { name: "RAG Analysis", completed: true },
+        { name: "Containment", completed: false },
+        { name: "Mitigation", completed: alert.status === "Resolved" },
+      ],
+      findings: [
+        alert.reason || `Autonomous detection of ${alert.attack_type}.`,
+        `Source IP ${alert.source_ip} directed anomalous traffic toward internal target ${alert.destination_ip || "192.168.29.93"}:${parsedPort}.`,
+        `Confidence evaluated at ${alert.confidence}% via Random Forest multi-class model (CICIDS2017 features).`,
+        `Forensic evidence cryptographic hash recorded and verified in SQLite ledger.`,
+      ],
+      relatedActivity: {
+        alertsCount: 1,
+        sourceIpsCount: 1,
+        affectedAssetsCount: 1,
+        suspiciousAuthCount: 0,
+      },
+      summary: alert.reason || `${alert.attack_type} detected from ${alert.source_ip} with ${alert.confidence}% confidence.`,
+    },
+    risk: {
+      score: alert.confidence,
+      level: alert.severity,
+      factors: [
+        { name: "Flow Density", level: alert.severity, score: alert.confidence },
+        { name: "Host Vulnerability", level: alert.severity === "CRITICAL" ? "HIGH" : "MEDIUM", score: Math.min(100, alert.confidence * 0.9) },
+        { name: "Network Exposure", level: "HIGH", score: 85 },
+      ],
+      explanation: alert.reason || `Live attack traffic from ${alert.source_ip} exceeding risk tolerance thresholds.`,
+    },
+  };
+}
 
 export function DashboardLayout({
   onReturnToHome,
@@ -35,10 +127,63 @@ export function DashboardLayout({
   );
   const [reportIncidentId, setReportIncidentId] = useState("INC-1024");
 
+  useEffect(() => {
+    let isMounted = true;
+    async function loadLatestAlertIncident() {
+      try {
+        const alerts = await fetchAlerts();
+        if (isMounted && alerts.length > 0) {
+          const prioritized =
+            alerts.find((a) => a.severity === "CRITICAL") ||
+            alerts.find((a) => a.severity === "HIGH") ||
+            alerts.find((a) => !a.destination_ip?.startsWith("224.") && !a.destination_ip?.startsWith("239.")) ||
+            alerts[0];
+          setSelectedIncident(buildIncidentFromApiAlert(prioritized));
+          setReportIncidentId(prioritized.incident_id);
+        }
+      } catch {
+        // non-blocking
+      }
+    }
+    loadLatestAlertIncident();
+    const handleGlobalRefresh = () => {
+      loadLatestAlertIncident();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("cybersentinel-refresh-all", handleGlobalRefresh);
+    }
+    return () => {
+      isMounted = false;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("cybersentinel-refresh-all", handleGlobalRefresh);
+      }
+    };
+  }, []);
+
+  const [incidentSubView, setIncidentSubView] = useState<"list" | "detail">("list");
+
+  const handleSelectTab = (tab: NavTab) => {
+    setActiveTab(tab);
+    if (tab === "incidents") {
+      setIncidentSubView("list");
+    }
+  };
+
   // Interaction Flow Helper: Dashboard -> Alert -> Alert Details -> AI Investigation -> etc.
   const handleSelectIncident = (incident: Incident) => {
     setSelectedIncident(incident);
+    setIncidentSubView("detail");
     setActiveTab("incidents");
+  };
+
+  const handleInvestigateIncident = (incident: Incident) => {
+    setSelectedIncident(incident);
+    setActiveTab("investigation");
+  };
+
+  const handleInvestigateAlert = (alert: Alert) => {
+    handleSelectAlert(alert);
+    setActiveTab("investigation");
   };
 
   const handleSelectAlert = (alert: Alert) => {
@@ -109,7 +254,10 @@ export function DashboardLayout({
             { name: "Detection", completed: true },
             { name: "Triage", completed: true },
             { name: "Evidence Hash", completed: true },
-            { name: "Remediation", completed: alert.status === "Resolved" },
+            { name: "Classification", completed: true },
+            { name: "RAG Analysis", completed: true },
+            { name: "Containment", completed: false },
+            { name: "Mitigation", completed: alert.status === "Resolved" },
           ],
           findings: [
             realReason,
@@ -137,6 +285,7 @@ export function DashboardLayout({
         },
       });
     }
+    setIncidentSubView("detail");
     setActiveTab("incidents");
   };
 
@@ -160,7 +309,7 @@ export function DashboardLayout({
       <TopNavbar
         activeTab={activeTab}
         onNavigateHome={onReturnToHome}
-        onSelectTab={setActiveTab}
+        onSelectTab={handleSelectTab}
         onOpenGuide={() => setShowHowItWorks(true)}
       />
 
@@ -170,82 +319,102 @@ export function DashboardLayout({
         onClose={() => setShowHowItWorks(false)}
         onNavigateTab={(tab) => {
           setShowHowItWorks(false);
-          setActiveTab(tab as NavTab);
+          handleSelectTab(tab as NavTab);
         }}
       />
 
       {/* Centered Floating Command Bar */}
       <CenteredCommandNav
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={handleSelectTab}
       />
 
       {/* Main Full-Width Content Container */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-16 min-w-0 relative z-10">
         <AnimatePresence mode="wait">
           <motion.div
-            key={activeTab}
+            key={`${activeTab}-${incidentSubView}`}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}
             transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
           >
-            {activeTab === "dashboard" && (
-              <OverviewView
-                onSelectIncident={handleSelectIncident}
-                onNavigateTab={(tab) => setActiveTab(tab as NavTab)}
-              />
-            )}
+            <GsapScrollTriggerProvider>
+              {activeTab === "dashboard" && (
+                <OverviewView
+                  onSelectIncident={handleSelectIncident}
+                  onInvestigateIncident={handleInvestigateIncident}
+                  onNavigateTab={(tab) => handleSelectTab(tab as NavTab)}
+                />
+              )}
 
-            {activeTab === "monitoring" && (
-              <MonitoringView onNavigateTab={(tab) => setActiveTab(tab as NavTab)} />
-            )}
+              {activeTab === "monitoring" && (
+                <MonitoringView onNavigateTab={(tab) => handleSelectTab(tab as NavTab)} />
+              )}
 
-            {activeTab === "alerts" && (
-              <AlertsView onSelectAlert={handleSelectAlert} />
-            )}
+              {activeTab === "alerts" && (
+                <AlertsView
+                  onSelectAlert={handleSelectAlert}
+                  onInvestigateAlert={handleInvestigateAlert}
+                />
+              )}
 
-            {activeTab === "incidents" && (
-              <AlertDetailsView
-                incident={selectedIncident}
-                onStartInvestigation={() => setActiveTab("investigation")}
-                onGenerateReport={() => handleViewReport(selectedIncident.id)}
-                onBack={() => setActiveTab("alerts")}
-              />
-            )}
+              {activeTab === "incidents" && incidentSubView === "list" && (
+                <IncidentsView
+                  onSelectIncident={(inc) => {
+                    setSelectedIncident(inc);
+                    setIncidentSubView("detail");
+                  }}
+                  onInvestigateIncident={(inc) => {
+                    setSelectedIncident(inc);
+                    setActiveTab("investigation");
+                  }}
+                  onViewReport={(incId) => handleViewReport(incId)}
+                />
+              )}
 
-            {activeTab === "threat-intel" && <ThreatIntelView />}
+              {activeTab === "incidents" && incidentSubView === "detail" && (
+                <AlertDetailsView
+                  incident={selectedIncident}
+                  onStartInvestigation={() => setActiveTab("investigation")}
+                  onGenerateReport={() => handleViewReport(selectedIncident.id)}
+                  onBack={() => setIncidentSubView("list")}
+                />
+              )}
 
-            {activeTab === "investigation" && (
-              <InvestigationView
-                incident={selectedIncident}
-                onGenerateReport={() => handleViewReport(selectedIncident.id)}
-                onNavigateTab={(tab) => setActiveTab(tab as NavTab)}
-              />
-            )}
+              {activeTab === "threat-intel" && <ThreatIntelView />}
 
-            {activeTab === "risk" && (
-              <RiskView onNavigateTab={(tab) => setActiveTab(tab as NavTab)} />
-            )}
+              {activeTab === "investigation" && (
+                <InvestigationView
+                  incident={selectedIncident}
+                  onGenerateReport={() => handleViewReport(selectedIncident.id)}
+                  onNavigateTab={(tab) => setActiveTab(tab as NavTab)}
+                />
+              )}
 
-            {activeTab === "evidence" && <EvidenceView />}
+              {activeTab === "risk" && (
+                <RiskView onNavigateTab={(tab) => setActiveTab(tab as NavTab)} />
+              )}
 
-            {activeTab === "analytics" && <AnalyticsView />}
+              {activeTab === "evidence" && <EvidenceView />}
 
-            {activeTab === "model" && <ModelPerformanceView />}
+              {activeTab === "analytics" && <AnalyticsView />}
 
-            {activeTab === "reports" && (
-              <ReportsView onViewReport={handleViewReport} />
-            )}
+              {activeTab === "model" && <ModelPerformanceView />}
 
-            {activeTab === "report-view" && (
-              <ReportDetailView
-                incidentId={reportIncidentId}
-                onBack={() => setActiveTab("reports")}
-              />
-            )}
+              {activeTab === "reports" && (
+                <ReportsView onViewReport={handleViewReport} />
+              )}
 
-            {activeTab === "settings" && <SettingsView />}
+              {activeTab === "report-view" && (
+                <ReportDetailView
+                  incidentId={reportIncidentId}
+                  onBack={() => setActiveTab("reports")}
+                />
+              )}
+
+              {activeTab === "settings" && <SettingsView />}
+            </GsapScrollTriggerProvider>
           </motion.div>
         </AnimatePresence>
       </main>

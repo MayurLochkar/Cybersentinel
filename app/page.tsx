@@ -14,6 +14,7 @@ import { FollowerPointerCard } from "@/components/ui/following-pointer";
 import { AuthModal } from "@/components/auth/auth-modal";
 import { Footer } from "@/components/footer";
 import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
+import { GsapScrollTriggerProvider } from "@/components/ui/gsap-scroll-trigger";
 import {
   ShieldAlert,
   Terminal,
@@ -232,115 +233,121 @@ export default function Home() {
 
       {/* Non-Blocking Fixed Cursor with Target Crosshair */}
       <FollowerPointerCard title="Security Analyst (You)">
-        <div className="min-h-screen bg-[#eef3f8] selection:bg-[#BFE9FF] selection:text-[#6F3DFF] relative">
-          {/* Hero Section with Floating Curved Capsule Navbar */}
-          <section id="hero" className="relative">
-            <Hero
-              onLaunchDashboard={() => setInDashboard(true)}
-              onOpenAuth={handleOpenAuth}
-            />
-          </section>
+        <GsapScrollTriggerProvider>
+          <div className="min-h-screen bg-[#eef3f8] selection:bg-[#BFE9FF] selection:text-[#6F3DFF] relative">
+            {/* Hero Section with Floating Curved Capsule Navbar */}
+            <section id="hero" className="relative">
+              <Hero
+                onLaunchDashboard={() => setInDashboard(true)}
+                onOpenAuth={handleOpenAuth}
+              />
+            </section>
 
-          {/* Quick Launch Banner Bar */}
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6 mb-16">
-            <div className="neu-flat rounded-3xl p-6 md:p-8 border border-[#B7B7B7]/40 flex flex-col md:flex-row items-center justify-between gap-6 bg-gradient-to-r from-[#6F3DFF]/8 via-white to-[#BFE9FF]/15 shadow-xl">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#6F3DFF] via-[#855bff] to-[#BFE9FF] text-white flex items-center justify-center shadow-md shadow-[#6F3DFF]/25 shrink-0 border border-white/50">
-                  <Sparkles className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <div className="text-xs font-bold text-[#6F3DFF] font-mono">LIVE PROTOTYPE CONSOLE</div>
-                  <div className="text-sm md:text-base font-extrabold text-slate-900 mt-0.5">
-                    Ready to test all 11 SOC investigation modules with realistic threat telemetry?
+            {/* Quick Launch Banner Bar with GSAP Reveal */}
+            <div data-gsap="reveal-up" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-6 mb-16">
+              <div className="neu-flat rounded-3xl p-6 md:p-8 border border-[#B7B7B7]/40 flex flex-col md:flex-row items-center justify-between gap-6 bg-gradient-to-r from-[#6F3DFF]/8 via-white to-[#BFE9FF]/15 shadow-xl">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-[#6F3DFF] via-[#855bff] to-[#BFE9FF] text-white flex items-center justify-center shadow-md shadow-[#6F3DFF]/25 shrink-0 border border-white/50">
+                    <Sparkles className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-[#6F3DFF] font-mono">LIVE PROTOTYPE CONSOLE</div>
+                    <div className="text-sm md:text-base font-extrabold text-slate-900 mt-0.5">
+                      Ready to test all 11 SOC investigation modules with realistic threat telemetry?
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-3 shrink-0">
-                <button
-                  onClick={() => setInDashboard(true)}
-                  className="px-6 py-3 rounded-full bg-gradient-to-r from-[#6F3DFF] to-[#4e19d9] hover:from-[#7c4dff] hover:to-[#5c24e6] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#6F3DFF]/30 active:scale-95 transition-all border border-[#BFE9FF]/30"
-                >
-                  <span>Enter SOC Console</span>
-                  <ArrowRight className="w-4 h-4 text-[#BFE9FF]" />
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Middle Features Showcase Section */}
-          <FeaturesSection onLaunchConsole={() => setInDashboard(true)} />
-
-          {/* Threat Scenarios with Infinite Marquee Effect (User's specific request) */}
-          <section id="scenarios" className="py-20 overflow-hidden relative">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-10 text-center">
-              <span className="px-3.5 py-1.5 rounded-full neu-flat-sm text-[11px] font-bold text-[#6F3DFF] uppercase tracking-wider font-mono border border-[#B7B7B7]/40">
-                Aceternity Focus Cards &bull; Infinite Marquee Stream
-              </span>
-              <h2 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight mt-3">
-                Active Threat Scenarios Under Watch
-              </h2>
-              <p className="text-xs md:text-sm text-slate-500 mt-2 max-w-xl mx-auto">
-                Hover across cards to pause the stream, isolate threat vectors, and inspect real-time classification.
-              </p>
-            </div>
-
-            {/* FocusCards rendered with useMarquee={true} for infinite smooth scrolling */}
-            <FocusCards
-              cards={focusCardsData}
-              useMarquee={true}
-              onSelect={(card) => {
-                setInDashboard(true);
-              }}
-            />
-          </section>
-
-          {/* Apple Cards Carousel Section */}
-          <section id="modules" className="py-20 bg-slate-100/60 border-y border-slate-200/80">
-            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-              <div className="flex flex-col md:flex-row md:items-end justify-between mb-6">
-                <div>
-                  <span className="px-3.5 py-1.5 rounded-full neu-flat-sm text-[11px] font-bold text-[#6F3DFF] uppercase tracking-wider font-mono border border-[#B7B7B7]/40">
-                    Enterprise Capabilities
-                  </span>
-                  <h2 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight mt-3">
-                    Autonomous SOC Architecture
-                  </h2>
+                <div className="flex items-center gap-3 shrink-0">
+                  <button
+                    onClick={() => setInDashboard(true)}
+                    className="px-6 py-3 rounded-full bg-gradient-to-r from-[#6F3DFF] to-[#4e19d9] hover:from-[#7c4dff] hover:to-[#5c24e6] text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-[#6F3DFF]/30 active:scale-95 transition-all border border-[#BFE9FF]/30"
+                  >
+                    <span>Enter SOC Console</span>
+                    <ArrowRight className="w-4 h-4 text-[#BFE9FF]" />
+                  </button>
                 </div>
-                <p className="text-xs text-slate-500 max-w-sm mt-2 md:mt-0">
-                  Swipe through core components powering detection, forensic analysis, MITRE mapping, and cryptographic assurance.
+              </div>
+            </div>
+
+            {/* Middle Features Showcase Section with GSAP Scale-In */}
+            <div data-gsap="scale-in">
+              <FeaturesSection onLaunchConsole={() => setInDashboard(true)} />
+            </div>
+
+            {/* Threat Scenarios with Infinite Marquee Effect */}
+            <section id="scenarios" data-gsap="reveal-up" className="py-20 overflow-hidden relative">
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-10 text-center">
+                <span className="px-3.5 py-1.5 rounded-full neu-flat-sm text-[11px] font-bold text-[#6F3DFF] uppercase tracking-wider font-mono border border-[#B7B7B7]/40">
+                  Aceternity Focus Cards &bull; Infinite Marquee Stream
+                </span>
+                <h2 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight mt-3">
+                  Active Threat Scenarios Under Watch
+                </h2>
+                <p className="text-xs md:text-sm text-slate-500 mt-2 max-w-xl mx-auto">
+                  Hover across cards to pause the stream, isolate threat vectors, and inspect real-time classification.
                 </p>
               </div>
 
-              <Carousel
-                items={appleCardsData.map((card, index) => (
-                  <AppleCard key={card.title} card={card} index={index} />
-                ))}
+              {/* FocusCards rendered with useMarquee={true} for infinite smooth scrolling */}
+              <FocusCards
+                cards={focusCardsData}
+                useMarquee={true}
+                onSelect={(card) => {
+                  setInDashboard(true);
+                }}
+              />
+            </section>
+
+            {/* Apple Cards Carousel Section with GSAP Reveal */}
+            <section id="modules" data-gsap="reveal-up" className="py-20 bg-slate-100/60 border-y border-slate-200/80">
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div className="flex flex-col md:flex-row md:items-end justify-between mb-6">
+                  <div>
+                    <span className="px-3.5 py-1.5 rounded-full neu-flat-sm text-[11px] font-bold text-[#6F3DFF] uppercase tracking-wider font-mono border border-[#B7B7B7]/40">
+                      Enterprise Capabilities
+                    </span>
+                    <h2 className="text-3xl md:text-5xl font-black text-slate-900 tracking-tight mt-3">
+                      Autonomous SOC Architecture
+                    </h2>
+                  </div>
+                  <p className="text-xs text-slate-500 max-w-sm mt-2 md:mt-0">
+                    Swipe through core components powering detection, forensic analysis, MITRE mapping, and cryptographic assurance.
+                  </p>
+                </div>
+
+                <Carousel
+                  items={appleCardsData.map((card, index) => (
+                    <AppleCard key={card.title} card={card} index={index} />
+                  ))}
+                />
+              </div>
+            </section>
+
+            {/* Floating Dock Fixed Navigation */}
+            <FloatingDock
+              items={floatingDockItems}
+              desktopClassName="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 shadow-2xl"
+              mobileClassName="fixed bottom-6 right-6 z-50"
+            />
+
+            {/* Neumorphic Auth Modal */}
+            <AuthModal
+              isOpen={authModalOpen}
+              onClose={() => setAuthModalOpen(false)}
+              initialTab={authInitialTab}
+              onLoginSuccess={handleLoginSuccess}
+            />
+
+            {/* DevStudio Style Footer */}
+            <div data-gsap="reveal-up">
+              <Footer
+                onOpenAuth={handleOpenAuth}
+                onNavigate={(page) => setInDashboard(true)}
               />
             </div>
-          </section>
-
-          {/* Floating Dock Fixed Navigation */}
-          <FloatingDock
-            items={floatingDockItems}
-            desktopClassName="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 shadow-2xl"
-            mobileClassName="fixed bottom-6 right-6 z-50"
-          />
-
-          {/* Neumorphic Auth Modal */}
-          <AuthModal
-            isOpen={authModalOpen}
-            onClose={() => setAuthModalOpen(false)}
-            initialTab={authInitialTab}
-            onLoginSuccess={handleLoginSuccess}
-          />
-
-          {/* DevStudio Style Footer */}
-          <Footer
-            onOpenAuth={handleOpenAuth}
-            onNavigate={(page) => setInDashboard(true)}
-          />
-        </div>
+          </div>
+        </GsapScrollTriggerProvider>
       </FollowerPointerCard>
     </>
   );

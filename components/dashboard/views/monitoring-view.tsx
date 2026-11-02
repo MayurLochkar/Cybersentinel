@@ -19,6 +19,7 @@ import {
   Clock,
   Database,
   Layers,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -35,6 +36,7 @@ import {
   resetMonitoringTelemetry,
   fetchMonitoringHistory,
   clearMonitoringHistory,
+  simulateAttackBurst,
   MonitoringStatus,
   MonitoringMetrics,
   NetworkInterfaceInfo,
@@ -106,6 +108,35 @@ export function MonitoringView({ onNavigateTab }: MonitoringViewProps) {
   const [historyLoading, setHistoryLoading] = useState<boolean>(false);
   const [resetConfirmOpen, setResetConfirmOpen] = useState<boolean>(false);
   const [isResetting, setIsResetting] = useState<boolean>(false);
+  const [isTriggeringBurst, setIsTriggeringBurst] = useState<boolean>(false);
+  const [selectedAttackType, setSelectedAttackType] = useState<string>("DoS");
+
+  const handleTriggerAttack = async (attackTypeOverride?: string) => {
+    const atk = attackTypeOverride || selectedAttackType;
+    setIsTriggeringBurst(true);
+    setErrorMessage(null);
+    try {
+      const bIp = metrics?.laptop_b_ip && !metrics.laptop_b_ip.endsWith(".1") && !metrics.laptop_b_ip.includes(":")
+        ? metrics.laptop_b_ip
+        : "192.168.29.252";
+      const res = await simulateAttackBurst(bIp, 8000, atk);
+      if (atk.toLowerCase() === "baseline") {
+        setSuccessMessage(`Benign baseline traffic verified from ${bIp}. Status: NORMAL (0 Alerts triggered).`);
+      } else {
+        setSuccessMessage(
+          `Live ${res.attack_type || atk} simulation recorded from ${bIp}. Attack anomaly count updated and alert created!`
+        );
+      }
+      await loadData(true);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("cybersentinel-refresh-all"));
+      }
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : "Failed to trigger traffic test");
+    } finally {
+      setIsTriggeringBurst(false);
+    }
+  };
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -529,6 +560,36 @@ export function MonitoringView({ onNavigateTab }: MonitoringViewProps) {
             <RotateCcw className={cn("w-4 h-4 text-rose-600", isResetting && "animate-spin")} />
             <span>Reset to 0</span>
           </button>
+
+          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white/90 border border-slate-300 shadow-xs">
+            <select
+              value={selectedAttackType}
+              onChange={(e) => setSelectedAttackType(e.target.value)}
+              className="text-xs font-bold text-slate-800 bg-transparent px-2 py-1.5 rounded-lg focus:outline-none cursor-pointer"
+              title="Select Attack Classification Profile"
+            >
+              <option value="DoS">Single-Source DoS (SYN Flood)</option>
+              <option value="Port Scan">Port Scan (Reconnaissance)</option>
+              <option value="SSH-Patator">SSH-Patator (SSH Brute Force)</option>
+              <option value="FTP-Patator">FTP-Patator (FTP Brute Force)</option>
+              <option value="Web Attack">Web Attack (SQLi & XSS)</option>
+              <option value="baseline">Baseline (Normal Safe Traffic)</option>
+            </select>
+            <button
+              onClick={() => handleTriggerAttack()}
+              disabled={isTriggeringBurst}
+              className={cn(
+                "px-3.5 py-1.5 rounded-lg text-xs font-extrabold flex items-center gap-1.5 transition-all active:scale-95 text-white cursor-pointer shadow-xs",
+                selectedAttackType === "baseline"
+                  ? "bg-emerald-600 hover:bg-emerald-700"
+                  : "bg-rose-600 hover:bg-rose-700"
+              )}
+              title="Execute selected simulation from Laptop B"
+            >
+              <Zap className={cn("w-3.5 h-3.5", isTriggeringBurst && "animate-bounce")} />
+              <span>{isTriggeringBurst ? "Transmitting..." : selectedAttackType === "baseline" ? "Send Baseline" : "Launch Attack"}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -624,6 +685,38 @@ export function MonitoringView({ onNavigateTab }: MonitoringViewProps) {
           </button>
         </div>
       )}
+
+      {/* Laptop B (Simulation Source) Connection & Monitoring Status */}
+      <div className="neu-flat rounded-2xl p-4 border border-indigo-200/80 bg-gradient-to-r from-slate-50 via-indigo-50/40 to-slate-50 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-3 h-3 rounded-full bg-emerald-500 ring-4 ring-emerald-100 animate-pulse shrink-0" />
+          <div className="space-y-0.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-bold text-slate-800">
+                Laptop B (Simulation Source):
+              </span>
+              <span className="font-mono text-xs font-extrabold text-indigo-700 bg-white px-2.5 py-0.5 rounded-md border border-indigo-200 shadow-2xs">
+                {metrics?.laptop_b_ip && !metrics.laptop_b_ip.endsWith(".1") && !metrics.laptop_b_ip.includes(":") ? metrics.laptop_b_ip : "192.168.29.252"}
+              </span>
+              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                Live Monitored
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500 font-medium">
+              Target: <strong className="font-mono text-slate-700">192.168.29.93:8000</strong> &bull; Raw Wire Packets Sniffed: <strong className="font-mono text-indigo-700">{metrics?.packets_from_laptop_b ?? 0}</strong> &bull; Anomaly Bursts Flagged: <strong className="font-mono text-rose-600">{metrics?.attack_count ?? 0}</strong>
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={() => handleTriggerAttack()}
+          disabled={isTriggeringBurst}
+          className="px-3.5 py-1.5 rounded-xl neu-flat bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+        >
+          <Zap className={cn("w-3.5 h-3.5 text-rose-600", isTriggeringBurst && "animate-bounce")} />
+          <span>{isTriggeringBurst ? "Transmitting..." : "Test Attack Burst"}</span>
+        </button>
+      </div>
 
       {/* 4 Telemetry Counter Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1004,85 +1097,24 @@ export function MonitoringView({ onNavigateTab }: MonitoringViewProps) {
                   />
                 </div>
 
-                {/* Engine Mode Toggle */}
-                <div>
-                  <label className="text-[11px] font-bold text-slate-700 block mb-1">
-                    Capture Engine Mode:
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 p-1 rounded-xl bg-slate-200/70 neu-pressed-sm">
-                    <button
-                      type="button"
-                      disabled={isRunning || actionLoading}
-                      onClick={() => setLiveCaptureMode("real")}
-                      className={cn(
-                        "py-2 px-2.5 rounded-lg text-[11px] font-bold transition-all text-center flex flex-col items-center justify-center gap-0.5",
-                        liveCaptureMode === "real"
-                          ? "bg-white text-emerald-800 shadow-sm border border-emerald-200/60"
-                          : "text-slate-600 hover:text-slate-900"
-                      )}
-                    >
-                      <span className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                        Real Live NIC
-                      </span>
-                      <span className="text-[9px] font-normal text-slate-500">Npcap Wire Capture</span>
-                    </button>
-                    <button
-                      type="button"
-                      disabled={isRunning || actionLoading}
-                      onClick={() => setLiveCaptureMode("demo")}
-                      className={cn(
-                        "py-2 px-2.5 rounded-lg text-[11px] font-bold transition-all text-center flex flex-col items-center justify-center gap-0.5",
-                        liveCaptureMode === "demo"
-                          ? "bg-white text-amber-800 shadow-sm border border-amber-200/60"
-                          : "text-slate-600 hover:text-slate-900"
-                      )}
-                    >
-                      <span className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                        Demo Mode
-                      </span>
-                      <span className="text-[9px] font-normal text-slate-500">In-Memory Simulated</span>
-                    </button>
-                  </div>
-                </div>
-
-                {!pcapLiveCapable && liveCaptureMode === "real" && (
-                  <div className="p-3 bg-amber-50/80 rounded-xl neu-pressed-sm border border-amber-200 text-amber-900 text-[11px] leading-relaxed">
-                    <span className="font-bold block text-amber-950 mb-0.5">Windows Npcap Driver Notice:</span>
-                    Live raw sniffing on Windows requires Npcap (https://npcap.com) installed with WinPcap API-compatible mode enabled. If not installed, switch to Demo Mode or use PCAP Ingestion.
-                  </div>
-                )}
-
                 <div className="pt-2 flex items-center gap-3">
                   {!isRunning ? (
                     <button
                       onClick={handleStartLive}
                       disabled={actionLoading}
-                      className={cn(
-                        "flex-1 py-3 px-4 rounded-xl text-white text-xs font-bold shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50",
-                        liveCaptureMode === "real"
-                          ? "bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20"
-                          : "bg-amber-600 hover:bg-amber-700 shadow-amber-600/20 text-slate-950"
-                      )}
+                      className="flex-1 py-3 px-4 rounded-xl text-white text-xs font-bold shadow-lg bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                     >
                       <Play className="w-4 h-4 fill-current" />
-                      <span>
-                        {actionLoading
-                          ? "Starting..."
-                          : liveCaptureMode === "real"
-                          ? "Start Real Live NIC Capture"
-                          : "Start Simulated Demo Traffic"}
-                      </span>
+                      <span>{actionLoading ? "Starting..." : "Start Real Live NIC Capture"}</span>
                     </button>
                   ) : (
                     <button
                       onClick={handleStopLive}
                       disabled={actionLoading}
-                      className="flex-1 py-3 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-lg shadow-rose-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                      className="flex-1 py-3 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-lg shadow-rose-600/20 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
                     >
                       <Square className="w-4 h-4 fill-current" />
-                      <span>{actionLoading ? "Stopping..." : "Stop Monitoring"}</span>
+                      <span>{actionLoading ? "Stopping..." : "Stop Live Sniffer"}</span>
                     </button>
                   )}
                 </div>

@@ -52,7 +52,7 @@ export function ReportsView({
                     "text-[10px] font-extrabold font-mono px-2 py-0.5 rounded-full uppercase",
                     rep.severity === "CRITICAL"
                       ? "bg-red-100 text-red-700 border border-red-200"
-                      : rep.severity === "HIGH"
+                      : (rep.severity as string) === "HIGH"
                       ? "bg-orange-100 text-orange-700 border border-orange-200"
                       : "bg-amber-100 text-amber-700 border border-amber-200"
                   )}

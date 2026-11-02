@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from monitoring.anomaly_detector import anomaly_detector
+
 
 def _safe_mean(values: List[float]) -> float:
     if not values:
@@ -483,9 +485,11 @@ class FlowAggregator:
                 flags=flags,
                 window_size=window_size,
             )
+            anomaly_detector.record_flow_created()
             if flow.is_closed:
                 # Immediate single-packet closure (e.g. immediate RST)
                 self.recently_closed[canonical_id] = timestamp
+                anomaly_detector.record_flow_closed(is_incomplete_syn=bool(proto == "TCP" and not flow.bwd_packets))
                 return flow
 
             self.active_flows[canonical_id] = flow
@@ -507,6 +511,7 @@ class FlowAggregator:
                 # Flow reached complete closure (both FINs received or RST observed)
                 del self.active_flows[canonical_id]
                 self.recently_closed[canonical_id] = timestamp
+                anomaly_detector.record_flow_closed(is_incomplete_syn=bool(proto == "TCP" and not flow.bwd_packets))
                 return flow
 
             return None
@@ -524,6 +529,7 @@ class FlowAggregator:
             if (current_time - flow.last_time) >= timeout:
                 flow.close_reason = "tcp_half_close_timeout" if (flow.fwd_fin or flow.bwd_fin) else "idle_timeout"
                 flow.is_closed = True
+                anomaly_detector.record_flow_closed(is_incomplete_syn=bool(flow.protocol == "TCP" and not flow.bwd_packets))
                 expired.append(flow)
                 keys_to_remove.append(key)
 

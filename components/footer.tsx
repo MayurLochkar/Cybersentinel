@@ -287,17 +287,19 @@ export function Footer({
             <p className="text-[11px] text-slate-400">
               Subscribe to zero-day CVE advisories & CICIDS heuristic signature updates.
             </p>
-            <form onSubmit={handleSubscribe} className="space-y-2">
+            <form onSubmit={handleSubscribe} className="space-y-2" suppressHydrationWarning>
               <input
                 type="email"
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
                 placeholder="analyst@soc.mil"
+                suppressHydrationWarning
                 className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-400"
               />
               <button
                 type="submit"
-                className="w-full py-2 px-3 rounded-xl bg-[#6F3DFF] hover:bg-[#855bff] text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5"
+                suppressHydrationWarning
+                className="w-full py-2 px-3 rounded-xl bg-[#6F3DFF] hover:bg-[#855bff] text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
               >
                 {subscribed ? (
                   <>

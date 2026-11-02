@@ -100,8 +100,8 @@ def test_suite():
     assert status_rst["packets_captured"] == 0
     print("[PASS] 07. Telemetry Reset: reset_counters() executed cleanly without AttributeError")
 
-    # 8. DHCP Protocol Semantics & Unverified Prediction Handling
-    # Simulate a 2-packet DHCP Discover / Request flow (0.0.0.0:68 -> 255.255.255.255:67 UDP)
+    # 8. DHCP Protocol Semantics & Defensible False-Positive Suppression
+    # Simulate a standard 2-packet DHCP Discover / Request flow (0.0.0.0:68 -> 255.255.255.255:67 UDP)
     dhcp_flow = BiFlow(fwd_ip="0.0.0.0", fwd_port=68, bwd_ip="255.255.255.255", bwd_port=67, protocol="UDP", start_time=now)
     dhcp_flow.add_packet(timestamp=now, length=340, payload_len=312, header_len=28, is_fwd=True)
     dhcp_flow.add_packet(timestamp=now + 0.5, length=340, payload_len=312, header_len=28, is_fwd=True)
@@ -110,17 +110,22 @@ def test_suite():
 
     # Process through monitoring manager
     dhcp_result = monitoring_manager.process_classified_flow(dhcp_meta, dhcp_feats, mode="TEST")
-    assert dhcp_result["prediction"] in ("BENIGN", "ATTACK")
-    if dhcp_result["prediction"] == "ATTACK":
-        # Must have created alert with LOW severity and explicit protocol context
-        assert dhcp_result.get("alert_id") is not None
-        # Verify alert in database
-        alert_res = client.get(f"/api/alerts/{dhcp_result['alert_id']}")
-        assert alert_res.status_code == 200
-        saved_alert = alert_res.json()
-        assert saved_alert["severity"] == "LOW", f"Expected LOW severity for broadcast discovery, got {saved_alert['severity']}"
-        assert "RFC 2131" in saved_alert["reason"], "Reason must document RFC 2131 DHCP protocol context"
-        print(f"[PASS] 08. DHCP Protocol Anomaly: Classified truthfully as {saved_alert['attack_type']} with severity={saved_alert['severity']} (RFC 2131 documented)")
+    assert dhcp_result["prediction"] == "BENIGN", f"Normal DHCP should be validated as BENIGN, got {dhcp_result['prediction']}"
+    assert dhcp_result.get("alert_id") is None, "Normal DHCP flow should not generate false-alarm alert"
+    assert dhcp_result.get("protocol_verdict") == "VALID_BENIGN"
+    print("[PASS] 08a. Normal DHCP Validation: Legitimate RFC 2131 broadcast validated as BENIGN; false-alarm alert suppressed")
+
+    # Simulate Malicious DHCP Starvation Attack (50 rapid packets, flood rate)
+    starve_flow = BiFlow(fwd_ip="192.168.1.99", fwd_port=68, bwd_ip="255.255.255.255", bwd_port=67, protocol="UDP", start_time=now)
+    for i in range(50):
+        starve_flow.add_packet(timestamp=now + (i * 0.005), length=340, payload_len=312, header_len=28, is_fwd=True)
+    starve_feats = starve_flow.compute_features()
+    starve_meta = starve_flow.get_metadata()
+    starve_result = monitoring_manager.process_classified_flow(starve_meta, starve_feats, mode="TEST")
+    assert starve_result["prediction"] == "ATTACK", f"DHCP flood must be flagged as ATTACK, got {starve_result['prediction']}"
+    assert starve_result.get("alert_id") is not None, "Suspicious DHCP flood must create alert"
+    assert "Starvation" in starve_result.get("attack_type", "") or "Flooding" in starve_result.get("attack_type", "")
+    print(f"[PASS] 08b. Suspicious DHCP Detection: Starvation flood classified as '{starve_result['attack_type']}' with alert created")
 
     # 9. ML Pipeline: 70 Features, NaN/Inf Rejection, Deterministic Output
     pipeline, feature_names = load_model()

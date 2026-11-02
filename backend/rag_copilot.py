@@ -18,6 +18,14 @@ from typing import List, Dict, Any, Optional
 from pathlib import Path
 from pydantic import BaseModel, Field
 
+# Load .env if present
+try:
+    from dotenv import load_dotenv
+    _env_file = Path(__file__).resolve().parent / ".env"
+    load_dotenv(dotenv_path=_env_file)
+except Exception:
+    pass
+
 # Try optional imports for LangChain & LLM providers
 LANGCHAIN_AVAILABLE = False
 try:
@@ -256,44 +264,65 @@ class AIInvestigationResponse(BaseModel):
     timestamp: str
 
 
-def run_llm_or_deterministic(prompt_context: str, system_prompt: str) -> Optional[str]:
+def run_llm_or_deterministic(prompt_context: str, system_prompt: str) -> tuple[Optional[str], str]:
     """
-    Attempts to call LangChain with OpenAI or Google Gemini if configured.
-    Returns None if no API keys are present or invocation fails, falling back to deterministic synthesis.
+    Attempts to call real LLM provider (Gemini or OpenAI) with safe timeouts.
+    Returns (response_text, provider_label).
+    If no keys or timeout occurs, returns (None, deterministic_fallback_label).
     """
-    openai_key = os.getenv("OPENAI_API_KEY")
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    _env_file = Path(__file__).resolve().parent / ".env"
+    if _env_file.exists():
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(dotenv_path=_env_file, override=True)
+        except Exception:
+            pass
 
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    timeout_sec = int(os.getenv("LLM_TIMEOUT_SECONDS", "10"))
+    fallback_provider = "CyberSentinel Deterministic RAG Engine (Local SOC Knowledge Base)"
+
+    # 1. Try Gemini
+    if gemini_key:
+        try:
+            import requests
+            model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
+            headers = {"Content-Type": "application/json"}
+            combined_prompt = f"{system_prompt}\n\nContext and Incident Telemetry:\n{prompt_context}\n\nAnalyst Response:"
+            payload = {
+                "contents": [{"parts": [{"text": combined_prompt}]}]
+            }
+            res = requests.post(url, headers=headers, json=payload, timeout=timeout_sec)
+            if res.status_code == 200:
+                data = res.json()
+                text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                return (text, f"Google Gemini ({model})")
+        except Exception:
+            pass
+
+    # 2. Try OpenAI
     if openai_key and LANGCHAIN_AVAILABLE:
         try:
             from langchain_openai import ChatOpenAI
-            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.2, api_key=openai_key)
+            llm = ChatOpenAI(model_name="gpt-4o-mini", temperature=0.2, api_key=openai_key, request_timeout=timeout_sec)
             chain = PromptTemplate.from_template(
                 "{system_prompt}\n\nContext and Incident Telemetry:\n{prompt_context}\n\nAnalyst Response:"
             ) | llm | StrOutputParser()
-            return chain.invoke({"system_prompt": system_prompt, "prompt_context": prompt_context})
+            resp = chain.invoke({"system_prompt": system_prompt, "prompt_context": prompt_context})
+            return (resp.strip(), "OpenAI (gpt-4o-mini)")
         except Exception:
             pass
 
-    if gemini_key and LANGCHAIN_AVAILABLE:
-        try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.2, google_api_key=gemini_key)
-            chain = PromptTemplate.from_template(
-                "{system_prompt}\n\nContext and Incident Telemetry:\n{prompt_context}\n\nAnalyst Response:"
-            ) | llm | StrOutputParser()
-            return chain.invoke({"system_prompt": system_prompt, "prompt_context": prompt_context})
-        except Exception:
-            pass
-
-    return None
+    return (None, fallback_provider)
 
 
 def investigate_incident_rag(alert_dict: Dict[str, Any]) -> AIInvestigationResponse:
     """
     Performs RAG investigation for a given alert/incident:
     1. Retrieves relevant MITRE techniques and NIST playbooks based on attack type & telemetry
-    2. Synthesizes forensic findings using LangChain / Deterministic Reasoning
+    2. Synthesizes forensic findings using LangChain / Real LLM or Deterministic Reasoning
     3. Generates immediate containment actions and Snort/Suricata defense rules
     """
     attack_type = alert_dict.get("attack_type", "Unknown Anomaly")
@@ -328,17 +357,16 @@ def investigate_incident_rag(alert_dict: Dict[str, Any]) -> AIInvestigationRespo
     )
 
     system_prompt = (
-        "You are CyberSentinel AI, an elite autonomous SOC Incident Commander and forensic analyst. "
-        "Synthesize the telemetry with the retrieved MITRE intelligence to provide actionable, "
-        "forensically sound guidance."
+        "You are CyberSentinel AI, an elite autonomous SOC Incident Commander. "
+        "Provide a clean, concise, 3-4 sentence executive summary stating the attacker IP, affected asset, "
+        "attack type, and immediate mitigation directive. Avoid memo headers ('**TO:**', '**FROM:**') or messy markdown symbols like '### ^^'."
     )
 
-    llm_output = run_llm_or_deterministic(prompt_context, system_prompt)
+    llm_output, provider_note = run_llm_or_deterministic(prompt_context, system_prompt)
 
     # Step 3: Format Comprehensive Synthesis
     if llm_output:
         executive_summary = llm_output.strip()
-        provider_note = "LangChain Agentic Engine (Live LLM)"
     else:
         executive_summary = (
             f"Autonomous SOC RAG analysis for {incident_id}: Host {dst_ip} was targeted by {src_ip} "
@@ -346,7 +374,6 @@ def investigate_incident_rag(alert_dict: Dict[str, Any]) -> AIInvestigationRespo
             f"Correlated against {top_mitre.get('technique_id')} ({top_mitre.get('technique_name')}). "
             f"Immediate containment is recommended to prevent lateral movement and service degradation."
         )
-        provider_note = "CyberSentinel Deterministic RAG Engine (Local SOC Knowledge Base)"
 
     forensic_hypothesis = (
         f"Based on flow metrics and TCP/UDP header characteristics, the adversary at {src_ip} is executing "
@@ -393,12 +420,14 @@ def chat_with_copilot_rag(query: str, incident_data: Optional[Dict[str, Any]] = 
         context_summary += f"\nActive Incident: {incident_data.get('incident_id')} | {incident_data.get('attack_type')} from {incident_data.get('source_ip')}"
 
     system_prompt = (
-        "You are CyberSentinel SOC Copilot, an AI assistant assisting cyber defense analysts in real-time. "
-        "Ground your answer in the provided cybersecurity context. Offer concise, technical, and actionable guidance."
+        "You are CyberSentinel SOC Copilot, an intelligent cyber defense assistant and analyst. "
+        "Answer the user's question directly, clearly, and accurately. "
+        "If relevant to cybersecurity or active incidents, ground your answer in the telemetry and MITRE context; "
+        "otherwise provide a direct, helpful, concise answer."
     )
 
     prompt = f"User Question: {query}\n\nContext:\n{context_summary}\n\nProvide a technical, clear answer:"
-    llm_resp = run_llm_or_deterministic(prompt, system_prompt)
+    llm_resp, provider_name = run_llm_or_deterministic(prompt, system_prompt)
 
     if not llm_resp:
         # High quality deterministic SOC fallback
@@ -437,5 +466,5 @@ def chat_with_copilot_rag(query: str, incident_data: Optional[Dict[str, Any]] = 
         "retrieved_context": retrieved,
         "rag_technique": top_doc.get("technique_id"),
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "provider": "LangChain LLM" if (os.getenv("OPENAI_API_KEY") or os.getenv("GEMINI_API_KEY")) else "CyberSentinel Deterministic RAG",
+        "provider": provider_name,
     }

@@ -11,6 +11,7 @@ import {
   Activity,
   ArrowUpRight,
   ShieldCheck,
+  ShieldAlert,
   Server,
   Zap,
   Radio,
@@ -26,6 +27,12 @@ import {
   Cpu,
   ArrowRight,
   Sparkles,
+  Radar,
+  Terminal,
+  Key,
+  Globe,
+  Layers,
+  Flame,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { CYBER_DATA, Incident } from "@/data/cyberData";
@@ -37,7 +44,6 @@ import {
   fetchMonitoringMetrics,
   fetchAnalyticsSummary,
   clearAllAlerts,
-  seedDemoAlerts,
   startMonitoringSession,
   stopMonitoringSession,
   ApiDashboardSummary,
@@ -50,9 +56,11 @@ import {
 export function OverviewView({
   onSelectIncident,
   onNavigateTab,
+  onInvestigateIncident,
 }: {
   onSelectIncident: (incident: Incident) => void;
   onNavigateTab: (tab: string) => void;
+  onInvestigateIncident?: (incident: Incident) => void;
 }) {
   const { kpis: defaultKpis, attackDistribution: defaultAttackDist, riskDistribution: defaultRiskDist, weeklyActivity: defaultWeekly, recentIncidents: defaultIncidents, liveActivityFeed } =
     CYBER_DATA;
@@ -68,6 +76,7 @@ export function OverviewView({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [bannerNotice, setBannerNotice] = useState<string | null>(null);
   const [showQuickGuide, setShowQuickGuide] = useState<boolean>(true);
+  const [selectedAlertId, setSelectedAlertId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -130,12 +139,155 @@ export function OverviewView({
   const activeInvestigationsCount = liveAlerts.filter((a) => a.status === "Investigating").length;
   const verifiedEvidenceCount = liveKpis?.verified_evidence ?? 0;
 
-  const handleClearDemoAlerts = async () => {
+  // Determine if an attack is actively occurring RIGHT NOW (from Laptop B or active sniffer):
+  const isAttackActive = Boolean(
+    monitoringStatus?.is_active_attack ||
+    liveKpis?.is_active_attack ||
+    liveAlerts.some((a) => {
+      if (!a.created_at) return false;
+      const ageMs = Date.now() - new Date(a.created_at).getTime();
+      return ageMs >= 0 && ageMs <= 35000;
+    })
+  );
+
+  // Active top attack alert:
+  // If user clicked a specific incident pill, show that; otherwise default to the MOST RECENT alert (liveAlerts[0])
+  const activeThreatAlert = (selectedAlertId && liveAlerts.find((a) => a.incident_id === selectedAlertId)) || liveAlerts[0] || null;
+
+  const topCriticalAlert = isAttackActive
+    ? activeThreatAlert
+    : null;
+
+  const validLaptopBIp = (() => {
+    const candidate = monitoringStatus?.laptop_b_ip || metrics?.laptop_b_ip;
+    if (
+      candidate &&
+      candidate !== "Auto-detecting on first packet" &&
+      !candidate.endsWith(".1") &&
+      !candidate.endsWith(".254") &&
+      candidate !== "192.168.56.1" &&
+      !candidate.includes(":")
+    ) {
+      return candidate;
+    }
+    if (topCriticalAlert?.source_ip) {
+      return topCriticalAlert.source_ip;
+    }
+    return "192.168.29.252";
+  })();
+
+  const attackerDisplayIp = (() => {
+    if (!topCriticalAlert) return `Laptop B (${validLaptopBIp})`;
+    const raw = topCriticalAlert.source_ip || "";
+    if (raw.endsWith(".1") || raw.endsWith(".254") || raw === "192.168.56.1" || raw.includes(":")) {
+      return `Laptop B (${validLaptopBIp})`;
+    }
+    if (raw.startsWith("192.168.") || raw.startsWith("10.") || raw.startsWith("172.")) {
+      return `Laptop B (${raw})`;
+    }
+    return `Laptop B (${validLaptopBIp})`;
+  })();
+
+  const buildTopIncident = (alert: ApiAlert): Incident => {
+    const portMatch = alert.target?.match(/port\s*(\d+)/i) || alert.reason?.match(/port\s*(\d+)/i);
+    const parsedPort = portMatch ? parseInt(portMatch[1], 10) : alert.attack_type?.toLowerCase().includes("ssh") ? 22 : 80;
+    const parsedProtocol = alert.attack_type?.toLowerCase().includes("udp") ? "UDP" : "TCP";
+    const cleanSourceIp = (alert.source_ip && !alert.source_ip.endsWith(".1") && !alert.source_ip.endsWith(".254") && alert.source_ip !== "192.168.56.1" && !alert.source_ip.includes(":"))
+      ? alert.source_ip
+      : validLaptopBIp;
+
+    return {
+      id: alert.incident_id,
+      attackType: alert.attack_type,
+      sourceIp: cleanSourceIp,
+      destinationIp: alert.destination_ip || "192.168.29.93",
+      target: alert.target || `Port ${parsedPort} (${parsedProtocol})`,
+      severity: alert.severity,
+      confidence: alert.confidence,
+      status: alert.status as any,
+      time: alert.created_at ? alert.created_at.slice(11, 16) : "Recent",
+      protocol: parsedProtocol,
+      port: parsedPort,
+      detectionTime: alert.created_at || new Date().toISOString(),
+      timeline: [
+        {
+          time: alert.created_at ? alert.created_at.slice(11, 19) : "Detection",
+          event: `Alert ${alert.incident_id} registered`,
+          detail: alert.reason || `Real-time correlation: ${alert.attack_type} flagged with ${alert.confidence}% confidence.`,
+        },
+        {
+          time: "Forensics",
+          event: "Evidence Packet Chain Hashed",
+          detail: `SHA-256 integrity hash committed for ${alert.source_ip} flow capture.`,
+        },
+      ],
+      aiExplanation: {
+        title: `${alert.attack_type} Signature Identified`,
+        description: alert.reason || `Autonomous detection of ${alert.attack_type} based on flow indicators.`,
+        indicators: ["CICIDS2017 Flow Metrics", "Statistical Anomaly Threshold", "Signature Correlation"],
+      },
+      mitre: {
+        tactic: alert.attack_type.includes("Scan") ? "Reconnaissance" : alert.attack_type.includes("Brute") ? "Credential Access" : "Impact",
+        technique: alert.attack_type,
+        techniqueId: alert.attack_type.includes("Brute") ? "T1110" : alert.attack_type.includes("Scan") ? "T1046" : alert.attack_type.includes("DDoS") || alert.attack_type.includes("DoS") ? "T1498" : "T1190",
+        description: alert.reason,
+      },
+      investigation: {
+        status: alert.status,
+        progressSteps: [
+          { name: "Detection", completed: true },
+          { name: "Triage", completed: true },
+          { name: "Evidence Hash", completed: true },
+          { name: "Classification", completed: true },
+          { name: "RAG Analysis", completed: true },
+          { name: "Containment", completed: false },
+          { name: "Mitigation", completed: alert.status === "Resolved" },
+        ],
+        findings: [
+          alert.reason || `Autonomous detection of ${alert.attack_type} based on network flow characteristics.`,
+          `Source IP ${alert.source_ip} directed anomalous traffic toward internal target ${alert.destination_ip || "192.168.29.93"}:${parsedPort}.`,
+          `Confidence evaluated at ${alert.confidence}% via Random Forest multi-class model (CICIDS2017 features).`,
+          `Forensic evidence cryptographic hash recorded and verified in SQLite ledger.`,
+        ],
+        relatedActivity: {
+          alertsCount: 1,
+          sourceIpsCount: 1,
+          affectedAssetsCount: 1,
+          suspiciousAuthCount: 0,
+        },
+        summary: alert.reason || `${alert.attack_type} detected from ${alert.source_ip} with ${alert.confidence}% confidence.`,
+      },
+      risk: {
+        score: alert.confidence,
+        level: alert.severity,
+        factors: [
+          { name: "Flow Density", level: alert.severity, score: alert.confidence },
+          { name: "Host Vulnerability", level: alert.severity === "CRITICAL" ? "HIGH" : "MEDIUM", score: Math.min(100, alert.confidence * 0.9) },
+          { name: "Network Exposure", level: "HIGH", score: 85 },
+        ],
+        explanation: alert.reason || `Live attack traffic from ${alert.source_ip} exceeding risk tolerance thresholds.`,
+      },
+    };
+  };
+
+  const handleClearAlerts = async () => {
     setIsClearing(true);
     setBannerNotice(null);
     try {
       const res = await clearAllAlerts();
       setLiveAlerts([]);
+      setSelectedAlertId(null);
+      if (monitoringStatus) {
+        setMonitoringStatus({
+          ...monitoringStatus,
+          is_active_attack: false,
+          current_threat_level: "NORMAL",
+          active_attack_type: null,
+          active_attack_source: null,
+          attack_count: 0,
+          alerts_created: 0,
+        });
+      }
       if (liveKpis) {
         setLiveKpis({
           ...liveKpis,
@@ -145,32 +297,20 @@ export function OverviewView({
           active_investigations: 0,
           open_alerts: 0,
           resolved_alerts: 0,
+          monitoring_alerts: 0,
+          attack_count: 0,
+          is_active_attack: false,
+          current_threat_level: "NORMAL",
+          active_attack_type: null,
+          active_attack_source: null,
         });
       }
-      setBannerNotice(`Cleared ${res.deleted_count} stale demo alerts. Dashboard is now synced directly to live project telemetry.`);
+      setBannerNotice(`Cleared ${res.deleted_count} alerts. All threat indicators and counters reset to zero.`);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("cybersentinel-refresh-all"));
       }
     } catch {
       setBannerNotice("Failed to clear alerts from database");
-    } finally {
-      setIsClearing(false);
-    }
-  };
-
-  const handleRestoreDemoAlerts = async () => {
-    setIsClearing(true);
-    setBannerNotice(null);
-    try {
-      await seedDemoAlerts();
-      const updated = await fetchAlerts();
-      setLiveAlerts(updated);
-      setBannerNotice("Baseline demo incidents restored to SQLite database.");
-      if (typeof window !== "undefined") {
-        window.dispatchEvent(new CustomEvent("cybersentinel-refresh-all"));
-      }
-    } catch {
-      setBannerNotice("Failed to restore demo alerts");
     } finally {
       setIsClearing(false);
     }
@@ -232,25 +372,15 @@ export function OverviewView({
         </div>
 
         <div className="flex items-center gap-2">
-          {liveAlerts.length > 0 ? (
+          {liveAlerts.length > 0 && (
             <button
-              onClick={handleClearDemoAlerts}
+              onClick={handleClearAlerts}
               disabled={isClearing}
-              className="px-3 py-1.5 rounded-xl neu-flat hover:bg-rose-50 text-rose-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 border border-rose-200/60"
-              title="Clear old / seed alerts so dashboard only shows pure real-time data"
+              className="px-3 py-1.5 rounded-xl neu-flat hover:bg-rose-50 text-rose-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 border border-rose-200/60 cursor-pointer shadow-2xs"
+              title="Clear logged incident history so dashboard reflects current live state"
             >
               <Trash2 className="w-3.5 h-3.5 text-rose-600" />
-              <span>Clear Stale Alerts ({liveAlerts.length})</span>
-            </button>
-          ) : (
-            <button
-              onClick={handleRestoreDemoAlerts}
-              disabled={isClearing}
-              className="px-3 py-1.5 rounded-xl neu-flat hover:bg-blue-50 text-blue-700 text-xs font-semibold flex items-center gap-1.5 transition-all active:scale-95 border border-blue-200/60"
-              title="Restore baseline demo alerts into SQLite"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-blue-600" />
-              <span>Restore Demo Data</span>
+              <span>Clear Alert Log ({liveAlerts.length})</span>
             </button>
           )}
 
@@ -284,6 +414,280 @@ export function OverviewView({
           >
             &times;
           </button>
+        </div>
+      )}
+
+      {/* ── HIGH CLARITY THREAT DETECTION & RAPID INVESTIGATION HERO BANNER ── */}
+      {topCriticalAlert ? (
+        <div className="neu-card-glow rounded-3xl p-6 bg-gradient-to-r from-rose-50/95 via-white/95 to-violet-50/95 border-2 border-rose-300/80 shadow-md flex flex-col lg:flex-row lg:items-center justify-between gap-5 relative overflow-hidden">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-rose-500 text-white flex items-center justify-center shrink-0 shadow-lg shadow-rose-500/25 animate-pulse">
+              <ShieldAlert className="w-7 h-7" />
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-rose-600 text-white shadow-xs">
+                  Attack Detected
+                </span>
+                <span className={cn(
+                  "px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase",
+                  topCriticalAlert.severity === "CRITICAL"
+                    ? "bg-rose-100 text-rose-700 border border-rose-200"
+                    : "bg-amber-100 text-amber-700 border border-amber-200"
+                )}>
+                  {topCriticalAlert.severity} PRIORITY
+                </span>
+                <span className="text-[11px] font-mono text-slate-500 font-semibold bg-white/80 px-2 py-0.5 rounded border border-slate-200">
+                  {topCriticalAlert.incident_id}
+                </span>
+              </div>
+
+              <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+                {topCriticalAlert.attack_type}
+              </h2>
+
+              <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-600 font-medium pt-0.5">
+                <span className="bg-white/80 px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-slate-400">Attacker:</span> <strong className="font-mono text-rose-600 font-bold">{attackerDisplayIp}</strong>
+                </span>
+                <span className="bg-white/80 px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-slate-400">Target:</span> <strong className="font-mono text-slate-800">{topCriticalAlert.target || "Port 80 (TCP)"}</strong>
+                </span>
+                <span className="bg-white/80 px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs">
+                  <span className="text-slate-400">ML Confidence:</span> <strong className="font-mono text-violet-700">{topCriticalAlert.confidence}%</strong>
+                </span>
+              </div>
+
+              {/* Multi-Attack Incident Switcher Pills */}
+              {liveAlerts.length > 1 && (
+                <div className="pt-2.5 border-t border-rose-200/60 mt-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] font-extrabold uppercase text-slate-500 tracking-wider">
+                      Switch Attack ({liveAlerts.length}):
+                    </span>
+                    {liveAlerts.slice(0, 6).map((alt, idx) => {
+                      const isSelected = topCriticalAlert?.incident_id === alt.incident_id;
+                      return (
+                        <button
+                          key={alt.incident_id}
+                          onClick={() => setSelectedAlertId(alt.incident_id)}
+                          className={cn(
+                            "px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs border",
+                            isSelected
+                              ? "bg-slate-900 text-white border-slate-900 shadow-sm ring-2 ring-rose-400"
+                              : "bg-white/90 text-slate-700 hover:bg-white border-slate-200/80"
+                          )}
+                          title={`Switch to ${alt.attack_type}`}
+                        >
+                          <span className={cn(
+                            "w-2 h-2 rounded-full shrink-0",
+                            idx === 0 ? "bg-rose-500 animate-pulse" : alt.severity === "CRITICAL" ? "bg-rose-500" : "bg-amber-500"
+                          )} />
+                          <span className="truncate max-w-[130px]">{alt.attack_type}</span>
+                          {idx === 0 && (
+                            <span className="px-1 py-0.2 rounded text-[9px] bg-rose-500/20 text-rose-700 font-extrabold uppercase">
+                              Latest
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row lg:flex-col items-stretch sm:items-center gap-2.5 shrink-0 relative z-20">
+            <button
+              id="hero-investigate-btn"
+              onClick={() => {
+                const inc = buildTopIncident(topCriticalAlert);
+                if (onInvestigateIncident) {
+                  onInvestigateIncident(inc);
+                } else {
+                  onSelectIncident(inc);
+                  onNavigateTab("investigation");
+                }
+              }}
+              className="neu-accent-btn px-5 py-3 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md hover:shadow-lg transition-all text-white cursor-pointer relative z-20"
+            >
+              <BrainCircuit className="w-4 h-4 text-glacier" />
+              <span>Investigate Attack Now</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+            <button
+              id="hero-dossier-btn"
+              onClick={() => onSelectIncident(buildTopIncident(topCriticalAlert))}
+              className="px-4 py-2 rounded-2xl neu-flat hover:bg-slate-100 font-semibold text-xs text-slate-700 flex items-center justify-center gap-1.5 transition-all border border-slate-200 cursor-pointer relative z-20"
+            >
+              View Full Incident Dossier
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="neu-card-glow rounded-3xl p-5 bg-gradient-to-r from-emerald-50/95 via-white/95 to-cyan-50/95 border-2 border-emerald-300 shadow-md flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-2xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/25">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+                  System Secure
+                </span>
+                <span className="text-xs text-slate-500 font-medium">
+                  Threat Status: <strong className="text-emerald-700 font-bold">NORMAL</strong> (No Active Attacks)
+                </span>
+                {validLaptopBIp && (
+                  <span className="text-[11px] font-mono text-slate-600 bg-white/80 px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-2xs">
+                    Laptop B: <strong className="text-slate-800">{validLaptopBIp}</strong>
+                  </span>
+                )}
+              </div>
+              <h2 className="text-base font-extrabold text-slate-900 mt-1">
+                All Systems Normal — Zero Active Threat Anomalies
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Listening for incoming network traffic. When Laptop B attacks (DoS, Port Scan, SSH/FTP Brute Force, Web Attack), real-time alerts trigger instantly.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigateTab("monitoring")}
+            className="neu-accent-btn px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 text-white shrink-0 cursor-pointer shadow-sm hover:shadow-md transition-all"
+          >
+            <Radio className="w-4 h-4 text-glacier" />
+            <span>Open Live SOC Monitor</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── RECENT ATTACKS FEED (MULTI-CLASS CLASSIFICATION LEDGER) ── */}
+      {liveAlerts.length > 0 && (
+        <div className="neu-flat rounded-2xl p-5 border border-white bg-gradient-to-r from-slate-50/70 via-white to-rose-50/50 shadow-sm space-y-3.5">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-600 flex items-center justify-center font-bold">
+                <Layers className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                  <span>Recent Classified Attacks & Threats</span>
+                  <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-200">
+                    {liveAlerts.length} LOGGED
+                  </span>
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Click any attack to feature it on the investigation board above or deep-dive into AI triage.
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => onNavigateTab("alerts")}
+              className="text-xs font-bold text-rose-700 hover:text-rose-800 hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              <span>View All In Alerts View</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
+            {liveAlerts.slice(0, 6).map((alert, idx) => {
+              const isSelected = (topCriticalAlert?.incident_id === alert.incident_id);
+              const isPortScan = alert.attack_type?.toLowerCase().includes("scan");
+              const isSSH = alert.attack_type?.toLowerCase().includes("ssh");
+              const isFTP = alert.attack_type?.toLowerCase().includes("ftp");
+              const isWeb = alert.attack_type?.toLowerCase().includes("web");
+              const isDoS = alert.attack_type?.toLowerCase().includes("dos") || alert.attack_type?.toLowerCase().includes("syn");
+
+              return (
+                <div
+                  key={alert.incident_id}
+                  onClick={() => setSelectedAlertId(alert.incident_id)}
+                  className={cn(
+                    "p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between shadow-2xs hover:shadow-sm",
+                    isSelected
+                      ? "bg-rose-50/90 border-rose-400 ring-2 ring-rose-300"
+                      : "bg-white hover:bg-slate-50/80 border-slate-200/80"
+                  )}
+                >
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={cn(
+                        "text-[9px] font-mono font-bold px-2 py-0.5 rounded-full uppercase",
+                        alert.severity === "CRITICAL"
+                          ? "bg-rose-100 text-rose-700 border border-rose-200"
+                          : alert.severity === "HIGH"
+                          ? "bg-amber-100 text-amber-700 border border-amber-200"
+                          : "bg-blue-100 text-blue-700 border border-blue-200"
+                      )}>
+                        {alert.severity}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        {idx === 0 && (
+                          <span className="text-[9px] font-mono font-extrabold px-1.5 py-0.2 rounded bg-rose-600 text-white animate-pulse">
+                            NEWEST
+                          </span>
+                        )}
+                        <span className="text-[10px] font-mono text-slate-400">
+                          {alert.incident_id}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <div className={cn(
+                        "w-6 h-6 rounded-lg flex items-center justify-center shrink-0",
+                        isPortScan ? "bg-cyan-100 text-cyan-700" :
+                        isSSH ? "bg-amber-100 text-amber-700" :
+                        isFTP ? "bg-yellow-100 text-yellow-700" :
+                        isWeb ? "bg-purple-100 text-purple-700" :
+                        "bg-rose-100 text-rose-700"
+                      )}>
+                        {isPortScan ? <Radar className="w-3.5 h-3.5" /> :
+                         isSSH ? <Key className="w-3.5 h-3.5" /> :
+                         isFTP ? <Terminal className="w-3.5 h-3.5" /> :
+                         isWeb ? <Globe className="w-3.5 h-3.5" /> :
+                         <Flame className="w-3.5 h-3.5" />}
+                      </div>
+                      <h4 className="text-xs font-bold text-slate-900 truncate" title={alert.attack_type}>
+                        {alert.attack_type}
+                      </h4>
+                    </div>
+
+                    <div className="space-y-0.5 text-[11px] text-slate-500 font-mono">
+                      <div>Target: <strong className="text-slate-700">{alert.target || "Port 80 (TCP)"}</strong></div>
+                      <div>Source: <strong className="text-rose-600">{alert.source_ip || validLaptopBIp}</strong></div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-slate-100">
+                    <span className="text-[10px] font-bold text-violet-700 font-mono">
+                      ML Conf: {alert.confidence}%
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const inc = buildTopIncident(alert);
+                        if (onInvestigateIncident) {
+                          onInvestigateIncident(inc);
+                        } else {
+                          onSelectIncident(inc);
+                          onNavigateTab("investigation");
+                        }
+                      }}
+                      className="text-[11px] font-bold text-slate-700 hover:text-rose-600 flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <span>Investigate</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -932,16 +1336,10 @@ export function OverviewView({
                 <div className="w-10 h-10 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center shadow-inner">
                   <ShieldCheck className="w-5 h-5" />
                 </div>
-                <h4 className="text-sm font-bold text-slate-800">No Active Incidents in Database</h4>
+                <h4 className="text-sm font-bold text-slate-800">No Incidents in Database — System Normal</h4>
                 <p className="text-xs text-slate-400 max-w-sm">
-                  Start Live Monitoring on Wi-Fi or analyze a PCAP capture above to record and classify real network threats.
+                  Run <code className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 font-mono">python laptop_b_traffic_generator.py</code> on Laptop B to generate baseline traffic or launch attack tests.
                 </p>
-                <button
-                  onClick={handleRestoreDemoAlerts}
-                  className="mt-2 text-xs font-bold text-blue-600 hover:underline"
-                >
-                  Load Demo Test Fixtures
-                </button>
               </div>
             ) : (
               <table className="w-full text-left text-xs">
@@ -959,69 +1357,16 @@ export function OverviewView({
                 </thead>
                 <tbody className="divide-y divide-slate-200/80 font-sans">
                   {liveAlerts.slice(0, 5).map((alert) => {
-                    const matched = defaultIncidents.find((i) => i.id === alert.incident_id);
-                    const displayIncident: Incident = matched || {
-                      id: alert.incident_id,
-                      attackType: alert.attack_type,
-                      sourceIp: alert.source_ip,
-                      target: alert.target || "Network Host",
-                      severity: alert.severity,
-                      confidence: alert.confidence,
-                      status: alert.status,
-                      time: "Live Feed",
-                      protocol: "TCP",
-                      port: 443,
-                      detectionTime: alert.created_at,
-                      timeline: [
-                        { time: "Just now", event: `Alert ${alert.incident_id} registered`, detail: alert.reason },
-                      ],
-                      aiExplanation: {
-                        title: `${alert.attack_type} Pattern Identified`,
-                        description: alert.reason || "Autonomous correlation from flow indicators.",
-                        indicators: ["CICIDS2017 Flow Metrics", "Signature Anomalies"],
-                      },
-                      mitre: {
-                        tactic: "Initial Access / Impact",
-                        technique: alert.attack_type,
-                        techniqueId: "T1110",
-                        description: alert.reason,
-                      },
-                      investigation: {
-                        status: alert.status,
-                        progressSteps: [
-                          { name: "Detection", completed: true },
-                          { name: "Triage", completed: true },
-                          { name: "Evidence Hash", completed: true },
-                          { name: "Mitigation", completed: false },
-                        ],
-                        findings: [alert.reason],
-                        relatedActivity: {
-                          alertsCount: 1,
-                          sourceIpsCount: 1,
-                          affectedAssetsCount: 1,
-                          suspiciousAuthCount: 0,
-                        },
-                        summary: alert.reason,
-                      },
-                      risk: {
-                        score: alert.confidence,
-                        level: alert.severity,
-                        factors: [{ name: "Flow Density", level: alert.severity, score: alert.confidence }],
-                        explanation: alert.reason,
-                      },
-                    };
+                    const displayIncident: Incident = buildTopIncident(alert);
 
-                    const isDemo = ["INC-1024", "INC-1023", "INC-1022"].includes(alert.incident_id);
                     const isLive = alert.incident_id.startsWith("INC-LIVE");
                     const isTest = alert.incident_id.startsWith("INC-TEST");
-                    const badgeLabel = isDemo ? "DEMO" : isLive ? "LIVE NIC" : isTest ? "PROBE" : "DB";
-                    const badgeClass = isDemo
-                      ? "bg-slate-100 text-slate-700 border-slate-300"
-                      : isLive
+                    const badgeLabel = isLive ? "LIVE NIC" : isTest ? "PROBE" : "ALERT";
+                    const badgeClass = isLive
                       ? "bg-emerald-100 text-emerald-800 border-emerald-300"
                       : isTest
                       ? "bg-purple-100 text-purple-800 border-purple-300"
-                      : "bg-blue-100 text-blue-800 border-blue-300";
+                      : "bg-rose-100 text-rose-800 border-rose-300";
 
                     const displaySource =
                       !alert.source_ip || alert.source_ip === "string" ? "Unavailable" : alert.source_ip;
@@ -1074,8 +1419,26 @@ export function OverviewView({
                             {alert.status}
                           </span>
                         </td>
-                        <td className="py-3.5 text-right font-mono text-slate-400 text-[11px]">
-                          {alert.created_at ? alert.created_at.slice(11, 16) : "Live"}
+                        <td className="py-3.5 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="font-mono text-slate-400 text-[10px] hidden sm:inline">
+                              {alert.created_at ? alert.created_at.slice(11, 16) : "Live"}
+                            </span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectIncident(displayIncident);
+                                if (onInvestigateIncident) {
+                                  onInvestigateIncident(displayIncident);
+                                } else {
+                                  onNavigateTab("investigation");
+                                }
+                              }}
+                              className="px-2 py-0.5 rounded neu-accent-btn text-[10px] font-bold text-white shadow-xs hover:shadow transition-all"
+                            >
+                              Investigate
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

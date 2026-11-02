@@ -17,6 +17,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 from scapy.all import IP, IPv6, TCP, UDP, ICMP, conf, get_if_list, sniff
 
 from monitoring.flow_extractor import BiFlow, FlowAggregator
+from monitoring.anomaly_detector import anomaly_detector
 
 logger = logging.getLogger("cybersentinel.monitoring")
 
@@ -275,6 +276,18 @@ class LiveCaptureSession:
 
             total_hdr_len = ip_hdr_len + trans_hdr_len
 
+            # Update live connection rate diagnostics and detect rapid incomplete handshakes
+            anomaly_detector.record_packet(
+                src_ip=src_ip,
+                dst_ip=dst_ip,
+                src_port=src_port,
+                dst_port=dst_port,
+                proto=proto_str,
+                flags=flags,
+                timestamp=ts,
+                payload_len=payload_len,
+            )
+
             closed_flow = self.aggregator.ingest_packet(
                 src_ip=src_ip,
                 dst_ip=dst_ip,
@@ -310,16 +323,15 @@ class LiveCaptureSession:
 
     def _sniff_worker(self) -> None:
         """Worker thread running Scapy sniff on physical/virtual NIC."""
-        # Prevent self-monitoring telemetry feedback loop from local management API / UI
-        management_filter = "not (port 8000 or port 3000)"
+        # Prevent self-monitoring telemetry feedback loop from local management Next.js UI (port 3000)
+        # Optimize BPF filter to process target SOC ports in kernel space,
+        # preventing Python GIL saturation from background OneDrive sync and browser streaming.
+        soc_ports_filter = "(tcp port 8000 or tcp port 8080 or tcp port 8888 or tcp port 9999 or port 80)"
         if self.bpf_filter and self.bpf_filter.strip():
             user_f = self.bpf_filter.strip()
-            if "port 8000" not in user_f and "port 3000" not in user_f:
-                effective_filter = f"({user_f}) and ({management_filter})"
-            else:
-                effective_filter = user_f
+            effective_filter = f"({user_f}) and ({soc_ports_filter})"
         else:
-            effective_filter = management_filter
+            effective_filter = soc_ports_filter
 
         logger.info(
             f"Starting REAL LIVE NIC sniffer on interface '{self.resolved_interface_name}' "

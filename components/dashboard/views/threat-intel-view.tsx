@@ -17,11 +17,11 @@ import {
 } from "lucide-react";
 import { CYBER_DATA } from "@/data/cyberData";
 import { MitreModal } from "../mitre-modal";
-import { fetchThreatIntelLookup, ApiThreatIntelResult } from "@/lib/api";
+import { fetchThreatIntelLookup, fetchAlerts, ApiThreatIntelResult } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export function ThreatIntelView() {
-  const [searchQuery, setSearchQuery] = useState("185.73.21.10");
+  const [searchQuery, setSearchQuery] = useState("192.168.29.252");
   const [showMitreModal, setShowMitreModal] = useState(false);
   const [intelData, setIntelData] = useState<ApiThreatIntelResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -40,7 +40,31 @@ export function ThreatIntelView() {
   };
 
   useEffect(() => {
-    performLookup("185.73.21.10");
+    async function initIntel() {
+      try {
+        const alerts = await fetchAlerts();
+        const liveIp = alerts.find(
+          (a) => !a.source_ip.endsWith(".1") && !a.source_ip.includes(":")
+        )?.source_ip;
+        const targetIp = liveIp || alerts[0]?.source_ip || "192.168.29.252";
+        setSearchQuery(targetIp);
+        performLookup(targetIp);
+      } catch {
+        performLookup("192.168.29.252");
+      }
+    }
+    initIntel();
+    const handleRefresh = () => {
+      initIntel();
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("cybersentinel-refresh-all", handleRefresh);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("cybersentinel-refresh-all", handleRefresh);
+      }
+    };
   }, []);
 
   const defaultIntel = CYBER_DATA.threatIntelligence;
@@ -48,12 +72,12 @@ export function ThreatIntelView() {
     intelData?.mitre_techniques && intelData.mitre_techniques.length > 0
       ? intelData.mitre_techniques[0]
       : {
-          attack_type: "Brute Force",
-          tactic: "Credential Access",
-          technique_id: "T1110",
-          technique_name: "Brute Force",
+          attack_type: "Single-Source DoS (SYN Flood / Connection Exhaustion)",
+          tactic: "Impact",
+          technique_id: "T1498.001",
+          technique_name: "Direct Network Denial of Service (SYN Flood)",
           description: defaultIntel.mitre.description,
-          mitigation: "M1036 - Account Use Policies, M1032 - Multi-factor Authentication",
+          mitigation: "M1037 - Ingress Firewall Filtering, TCP SYN Cookies (Syncookies), and Host Rate Limits",
         };
 
   return (
@@ -76,7 +100,7 @@ export function ThreatIntelView() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && performLookup(searchQuery)}
-              placeholder="Search IP, incident ID, or attack vector (e.g. 185.73.21.10, INC-1024, Port Scan)..."
+              placeholder="Search IP, incident ID, or attack vector (e.g. 192.168.29.252, INC-LIVE, Single-Source DoS)..."
               className="w-full pl-10 pr-4 py-2.5 bg-white/90 neu-pressed-sm rounded-xl text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/40 font-mono transition-all"
             />
           </div>
@@ -86,6 +110,41 @@ export function ThreatIntelView() {
             className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold font-mono transition-all disabled:opacity-50"
           >
             {loading ? "Searching..." : "Lookup"}
+          </button>
+        </div>
+
+        {/* Quick presets */}
+        <div className="flex items-center gap-2 pt-1 flex-wrap text-[11px] font-mono text-slate-500">
+          <span className="font-sans font-semibold text-slate-400">Quick Intel Targets:</span>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery("192.168.29.252");
+              performLookup("192.168.29.252");
+            }}
+            className="px-2.5 py-0.5 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-bold transition-all"
+          >
+            Laptop B (192.168.29.252)
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery("Single-Source DoS");
+              performLookup("Single-Source DoS");
+            }}
+            className="px-2.5 py-0.5 rounded-md bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-bold transition-all"
+          >
+            Single-Source DoS
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSearchQuery("Port 8000");
+              performLookup("Port 8000");
+            }}
+            className="px-2.5 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold transition-all"
+          >
+            Target Port 8000
           </button>
         </div>
       </div>

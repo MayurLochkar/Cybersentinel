@@ -17,7 +17,7 @@ import sys
 import time
 from fastapi.testclient import TestClient
 
-from main import app
+from main import app, seed_demo_data
 from database import engine, Base
 from models import Alert
 from monitoring.live_capture import is_pcap_available, get_available_interfaces, resolve_scapy_interface
@@ -33,6 +33,10 @@ def run_tests():
     print("=" * 70)
     print("CYBERSENTINEL-X LIVE MONITORING & TELEMETRY VERIFICATION SUITE")
     print("=" * 70)
+
+    # Initialize tables and seed data if not present
+    Base.metadata.create_all(bind=engine)
+    seed_demo_data()
 
     # 1. Baseline Health Endpoint
     res = client.get("/api/health")

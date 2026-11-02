@@ -263,7 +263,8 @@ export function AuthModal({
                 {/* Gradient Submit Button */}
                 <button
                   type="submit"
-                  className="w-full py-3 px-4 rounded-xl text-white font-semibold text-xs uppercase tracking-wider bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-lg shadow-blue-500/25 transition-all transform active:scale-[0.99] flex items-center justify-center gap-2"
+                  suppressHydrationWarning
+                  className="w-full py-3 px-4 rounded-xl text-white font-semibold text-xs uppercase tracking-wider bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 shadow-lg shadow-blue-500/25 transition-all transform active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <span>
                     {activeTab === "signin"

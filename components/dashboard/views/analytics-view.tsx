@@ -61,7 +61,7 @@ export function AnalyticsView() {
     analytics && analytics.top_source_ips.length > 0
       ? analytics.top_source_ips
       : [
-          { ip: "185.73.21.10", count: 1 },
+          { ip: "192.168.29.252", count: 1 },
           { ip: "45.91.22.17", count: 1 },
           { ip: "103.44.18.91", count: 1 },
         ];
@@ -70,7 +70,7 @@ export function AnalyticsView() {
     analytics && analytics.top_targets.length > 0
       ? analytics.top_targets
       : [
-          { target: "Auth Server", count: 1 },
+          { target: "Port 8000 (TCP)", count: 1 },
           { target: "Web Server", count: 1 },
           { target: "API Gateway", count: 1 },
         ];

@@ -1,0 +1,24 @@
+{
+  "incident_id": "INC-LIVE-11021621-965460",
+  "source_ip": "2405:201:3025:f156:4d77:4457:8d0a:89df",
+  "destination_ip": "2a04:4e42:fe7::684",
+  "destination_port": 80,
+  "attack_type": "Single-Source DoS (SYN Flood / Connection Exhaustion)",
+  "anomaly_telemetry": {
+    "is_anomaly": true,
+    "anomaly_type": "Single-Source DoS (SYN Flood / Connection Exhaustion)",
+    "subtype_status": "SUSPECTED",
+    "severity": "HIGH",
+    "source_ip": "2405:201:3025:f156:4d77:4457:8d0a:89df",
+    "destination_ip": "2a04:4e42:fe7::684",
+    "destination_port": 80,
+    "protocol": "TCP",
+    "connection_rate": 1.3,
+    "incomplete_handshakes": 8,
+    "window_seconds": 6.0,
+    "confidence": 74.0,
+    "rationale": "Rapid connection burst: 8 incomplete TCP SYN connection attempts at 1.3 conn/s over a 6.0s window targeting Port 80. Originates from single host 2405:201:3025:f156:4d77:4457:8d0a:89df (Single-Source DoS simulation, not distributed DDoS).",
+    "evidence_needed": "Target server TCP backlog (netstat / ss) and edge firewall SYN drop audit."
+  },
+  "timestamp": "2026-11-02T16:21:41.829562+00:00"
+}

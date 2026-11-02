@@ -1,0 +1,24 @@
+{
+  "incident_id": "INC-LIVE-11020807-F9CFDF",
+  "source_ip": "10.156.238.127",
+  "destination_ip": "10.156.238.1",
+  "destination_port": 8000,
+  "attack_type": "Single-Source DoS (SYN Flood / Connection Exhaustion)",
+  "anomaly_telemetry": {
+    "is_anomaly": true,
+    "anomaly_type": "Single-Source DoS (SYN Flood / Connection Exhaustion)",
+    "subtype_status": "SUSPECTED",
+    "severity": "CRITICAL",
+    "source_ip": "10.156.238.127",
+    "destination_ip": "10.156.238.1",
+    "destination_port": 8000,
+    "protocol": "TCP",
+    "connection_rate": 1.3,
+    "incomplete_handshakes": 8,
+    "window_seconds": 6.0,
+    "confidence": 74.0,
+    "rationale": "Rapid connection burst: 8 incomplete TCP SYN connection attempts at 1.3 conn/s over a 6.0s window targeting Port 8000. Originates from single host 10.156.238.127 (Single-Source DoS simulation, not distributed DDoS).",
+    "evidence_needed": "Target server TCP backlog (netstat / ss) and edge firewall SYN drop audit."
+  },
+  "timestamp": "2026-11-02T08:08:00.062999+00:00"
+}
