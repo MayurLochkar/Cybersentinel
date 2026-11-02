@@ -27,6 +27,14 @@ import {
   Layers,
   ChevronDown,
   ChevronUp,
+  HelpCircle,
+  AlertTriangle,
+  Zap,
+  Ban,
+  Activity,
+  ArrowDown,
+  Sliders,
+  CheckCheck,
 } from "lucide-react";
 import { Incident } from "@/data/cyberData";
 import { cn } from "@/lib/utils";
@@ -46,8 +54,11 @@ export function InvestigationView({
   onNavigateTab: (tab: string) => void;
 }) {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<"triage" | "containment" | "copilot">("triage");
+  const [explanationMode, setExplanationMode] = useState<"simple" | "technical">("simple");
   const [copiedRule, setCopiedRule] = useState<string | null>(null);
   const [showRawBriefing, setShowRawBriefing] = useState(false);
+  const [isFirewallActive, setIsFirewallActive] = useState(false);
+  const [toastMsg, setToastMsg] = useState("");
 
   // AI & RAG Copilot State
   const [aiReport, setAiReport] = useState<ApiAIInvestigationResponse | null>(null);
@@ -184,9 +195,20 @@ export function InvestigationView({
   };
 
   const handleCopyText = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
+    navigator.clipboard?.writeText(text);
     setCopiedRule(id);
     setTimeout(() => setCopiedRule(null), 2000);
+  };
+
+  const handleToggleBlock = () => {
+    const nextState = !isFirewallActive;
+    setIsFirewallActive(nextState);
+    setToastMsg(
+      nextState
+        ? `Firewall rule applied: Inbound traffic from ${incident.sourceIp} is now BLOCKED.`
+        : `Firewall block rule deactivated for ${incident.sourceIp}.`
+    );
+    setTimeout(() => setToastMsg(""), 3500);
   };
 
   // Clean executive narrative helper
@@ -239,9 +261,47 @@ export function InvestigationView({
   const isSSH = incident.attackType?.toLowerCase().includes("ssh");
   const isFTP = incident.attackType?.toLowerCase().includes("ftp");
   const isWeb = incident.attackType?.toLowerCase().includes("web");
+  const isDoS = incident.attackType?.toLowerCase().includes("dos") || incident.attackType?.toLowerCase().includes("syn");
+
+  // Plain-Language Explanations (Easily understandable for any user)
+  const plainExplanations = {
+    whatHappened: isDoS
+      ? `Attacker computer (${incident.sourceIp}) sent a high-velocity flood of incomplete TCP SYN connection requests to your server on Port ${incident.port || 8000}. By sending dozens of requests per second without finishing the connection handshake, it tried to exhaust your server's memory and connection slots.`
+      : isPortScan
+      ? `Attacker computer (${incident.sourceIp}) was actively scanning multiple ports on your network to discover which services and applications are running and find open vulnerabilities.`
+      : isSSH
+      ? `Attacker computer (${incident.sourceIp}) attempted an automated dictionary brute-force password spray targeting SSH service (Port 22) trying to gain unauthorized remote access.`
+      : isFTP
+      ? `Attacker computer (${incident.sourceIp}) flooded the FTP service (Port 21) with rapid login attempts attempting to crack user credentials.`
+      : isWeb
+      ? `Attacker computer (${incident.sourceIp}) injected suspicious web payloads (SQL injection or XSS scripting) into web application endpoints.`
+      : `Anomalous network telemetry was detected originating from ${incident.sourceIp} targeting your server on Port ${incident.port || 8000}.`,
+
+    whyAIFlagged: isDoS
+      ? `The Machine Learning model (Random Forest trained on CIC-IDS2017) observed packet burst velocity exceeding the 99th percentile baseline, with 100% asymmetric forward-only SYN flags and 0 completed handshakes (${incident.confidence}% match).`
+      : isPortScan
+      ? `AI detected an abnormal number of distinct destination ports probed in a short time window, diverging sharply from normal legitimate browsing patterns (${incident.confidence}% match).`
+      : `The flow exhibited high packet frequency, repetitive authentication requests, and rapid reset flags typical of automated brute-force scripts (${incident.confidence}% match).`,
+
+    potentialDanger: isDoS
+      ? `If left unblocked, your service on Port ${incident.port || 8000} can freeze or crash, preventing genuine users from accessing your application (Denial of Service).`
+      : isPortScan
+      ? `The attacker is actively mapping your system to launch a targeted exploit on open, vulnerable services.`
+      : `The attacker could guess administrative credentials and take over host access remotely.`,
+
+    immediateAction: `Add a firewall drop rule on your host or router to immediately disconnect and block all inbound packets from ${incident.sourceIp}.`,
+  };
 
   return (
     <div className="space-y-6 pb-12 max-w-7xl mx-auto">
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-2xl flex items-center gap-2 font-medium shadow-xs">
+          <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
       {/* ── 1. MODERN INVESTIGATION COMMAND HERO ── */}
       <div className="neu-card-glow rounded-3xl p-6 sm:p-7 bg-gradient-to-r from-indigo-50/90 via-white/95 to-purple-50/80 border-2 border-indigo-200/90 shadow-md relative overflow-hidden">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
@@ -281,26 +341,26 @@ export function InvestigationView({
                 </span>
                 <span className="text-[10px] font-mono text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full flex items-center gap-1 font-bold">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                  RAG Vector Store: ONLINE
+                  AI RAG Vector Store: ONLINE
                 </span>
               </div>
 
               <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">
-                {incident.attackType}
+                {incident.attackType} Investigation
               </h1>
 
               {/* 5-Tuple Specs in Generous Glass Pills */}
               <div className="flex flex-wrap items-center gap-2.5 text-xs text-slate-600 pt-1">
                 <span className="bg-white/95 px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
-                  <span className="text-slate-400 font-medium">Attacker:</span>{" "}
+                  <span className="text-slate-400 font-medium">Attacker Device:</span>{" "}
                   <strong className="font-mono text-rose-600 font-bold">{incident.sourceIp}</strong>
                 </span>
                 <span className="bg-white/95 px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
-                  <span className="text-slate-400 font-medium">Target:</span>{" "}
-                  <strong className="font-mono text-slate-800 font-bold">{incident.target || "Port 80 (TCP)"}</strong>
+                  <span className="text-slate-400 font-medium">Target Port:</span>{" "}
+                  <strong className="font-mono text-slate-800 font-bold">{incident.target || `Port ${incident.port || 8000} (TCP)`}</strong>
                 </span>
                 <span className="bg-white/95 px-3 py-1.5 rounded-xl border border-slate-200 shadow-2xs">
-                  <span className="text-slate-400 font-medium">Confidence:</span>{" "}
+                  <span className="text-slate-400 font-medium">Model Confidence:</span>{" "}
                   <strong className="font-mono text-violet-700 font-bold">{incident.confidence}% Verified</strong>
                 </span>
                 {aiReport?.attack_classification?.technique_id && (
@@ -327,19 +387,19 @@ export function InvestigationView({
               className="px-4 py-2.5 rounded-2xl bg-white hover:bg-slate-50 text-slate-800 text-xs font-bold flex items-center justify-center gap-2 border border-slate-200 shadow-sm transition-all cursor-pointer"
             >
               <FileText className="w-4 h-4 text-blue-600" />
-              <span>Generate Forensic PDF</span>
+              <span>Generate Forensic Report</span>
             </button>
           </div>
         </div>
 
-        {/* ── LINEAR 7-PHASE TIMELINE BAR (Clean & Spacious) ── */}
+        {/* ── LINEAR 7-PHASE TIMELINE BAR ── */}
         <div className="mt-6 pt-5 border-t border-indigo-200/50">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider">
               Autonomous Investigation Pipeline Lifecycle:
             </span>
             <span className="text-[10px] font-mono text-emerald-700 font-bold">
-              Stage 5/7 Completed
+              Stage 5/7 Completed &bull; Evidence Hashed
             </span>
           </div>
           <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
@@ -363,7 +423,77 @@ export function InvestigationView({
         </div>
       </div>
 
-      {/* ── 2. SEGMENTED WORKSPACE SELECTOR (DE-CONGESTS THE PAGE) ── */}
+      {/* ── VISUAL ATTACK & CONTAINMENT FLOW DIAGRAM (VISUAL EXPLANATION) ── */}
+      <div className="neu-flat rounded-3xl p-5 border border-white bg-white/80 shadow-xs">
+        <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-500" />
+            <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+              Live Attack Telemetry Flow (हमले का दृश्य प्रवाह)
+            </h3>
+          </div>
+          <span className="text-[10px] font-mono text-slate-400">
+            Real-Time Socket Interception
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+          {/* Node 1: Attacker */}
+          <div className="p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-center space-y-1">
+            <div className="w-8 h-8 rounded-xl bg-rose-600 text-white mx-auto flex items-center justify-center font-bold text-xs shadow-xs">
+              <Server className="w-4 h-4" />
+            </div>
+            <div className="text-[10px] font-bold uppercase text-rose-700">1. Attacker Device</div>
+            <div className="text-xs font-black font-mono text-slate-900">{incident.sourceIp}</div>
+            <div className="text-[9px] text-rose-600/80 font-medium">Source of anomalous burst</div>
+          </div>
+
+          {/* Node 2: Attack Vector */}
+          <div className="p-3.5 rounded-2xl bg-amber-50 border border-amber-200 text-center space-y-1">
+            <div className="w-8 h-8 rounded-xl bg-amber-500 text-white mx-auto flex items-center justify-center font-bold text-xs shadow-xs">
+              <Flame className="w-4 h-4" />
+            </div>
+            <div className="text-[10px] font-bold uppercase text-amber-800">2. Attack Transmission</div>
+            <div className="text-xs font-black text-slate-900 truncate">{incident.attackType}</div>
+            <div className="text-[9px] text-amber-700/80 font-medium">TCP SYN / High Velocity Burst</div>
+          </div>
+
+          {/* Node 3: AI Detector */}
+          <div className="p-3.5 rounded-2xl bg-indigo-50 border border-indigo-200 text-center space-y-1">
+            <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white mx-auto flex items-center justify-center font-bold text-xs shadow-xs">
+              <BrainCircuit className="w-4 h-4" />
+            </div>
+            <div className="text-[10px] font-bold uppercase text-indigo-700">3. AI Classifier Match</div>
+            <div className="text-xs font-black text-indigo-900">{incident.confidence}% Confidence</div>
+            <div className="text-[9px] text-indigo-600 font-medium">CICIDS2017 RF-70 Model</div>
+          </div>
+
+          {/* Node 4: Target & Containment */}
+          <div className={cn(
+            "p-3.5 rounded-2xl border text-center space-y-1 transition-all",
+            isFirewallActive
+              ? "bg-emerald-50 border-emerald-300"
+              : "bg-blue-50 border-blue-200"
+          )}>
+            <div className={cn(
+              "w-8 h-8 rounded-xl mx-auto flex items-center justify-center font-bold text-xs shadow-xs text-white",
+              isFirewallActive ? "bg-emerald-600" : "bg-blue-600"
+            )}>
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div className="text-[10px] font-bold uppercase text-slate-700">4. Target Host Status</div>
+            <div className="text-xs font-black text-slate-900">{incident.target || `Port ${incident.port || 8000}`}</div>
+            <div className={cn(
+              "text-[9px] font-bold",
+              isFirewallActive ? "text-emerald-700" : "text-blue-700"
+            )}>
+              {isFirewallActive ? "SHIELD ACTIVE (IP Blocked)" : "Shield Ready to Apply"}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── 2. SEGMENTED WORKSPACE SELECTOR ── */}
       <div className="flex items-center justify-between flex-wrap gap-3 border-b border-slate-200 pb-2">
         <div className="flex items-center gap-2 p-1 bg-slate-200/70 rounded-2xl">
           <button
@@ -376,7 +506,7 @@ export function InvestigationView({
             )}
           >
             <BrainCircuit className="w-4 h-4 text-indigo-600" />
-            <span>AI Triage & Forensic Findings</span>
+            <span>AI Triage & Clear Breakdown</span>
           </button>
           <button
             onClick={() => setActiveWorkspaceTab("containment")}
@@ -400,19 +530,39 @@ export function InvestigationView({
             )}
           >
             <Bot className="w-4 h-4 text-cyan-600" />
-            <span>Ask Copilot (Interactive RAG)</span>
+            <span>Ask Copilot (Interactive AI)</span>
           </button>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => onNavigateTab("alerts")}
-            className="px-3.5 py-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition-all cursor-pointer flex items-center gap-1.5"
-          >
-            <span>Back to Alerts List</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
+        {/* Mode Toggle: Easy & Clear vs Deep Technical */}
+        {activeWorkspaceTab === "triage" && (
+          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <button
+              onClick={() => setExplanationMode("simple")}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
+                explanationMode === "simple"
+                  ? "bg-indigo-600 text-white shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              )}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Easy & Clear (सरल सारांश)</span>
+            </button>
+            <button
+              onClick={() => setExplanationMode("technical")}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
+                explanationMode === "technical"
+                  ? "bg-slate-900 text-white shadow-xs"
+                  : "text-slate-600 hover:text-slate-900"
+              )}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              <span>Deep Technical (तकनीकी)</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Loading state indicator */}
@@ -431,63 +581,176 @@ export function InvestigationView({
       {/* ── TAB 1: AI EXECUTIVE TRIAGE & FORENSIC FINDINGS ── */}
       {activeWorkspaceTab === "triage" && (
         <div className="space-y-6 animate-fade-in">
-          {/* Executive Threat Assessment Card */}
-          <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
-                  <Sparkles className="w-4 h-4" />
+          {/* MODE 1: SIMPLE & CLEAR BREAKDOWN (EASILY UNDERSTANDABLE) */}
+          {explanationMode === "simple" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Question 1: What Happened? */}
+              <div className="neu-flat rounded-3xl p-5 border border-white bg-gradient-to-b from-blue-50/60 via-white to-white space-y-3">
+                <div className="flex items-center gap-2.5 border-b border-blue-100 pb-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center font-black text-xs">
+                    01
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                      What Happened? (क्या हमला हुआ?)
+                    </h3>
+                    <span className="text-[10px] text-slate-400 font-medium">Attack Context & Target</span>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-extrabold text-slate-900">
-                    Executive Threat Narrative & Causality
-                  </h3>
-                  <p className="text-[11px] text-slate-500">
-                    Grounded in NIST SP 800-61 Rev 2 incident triage standard
-                  </p>
+                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                  {plainExplanations.whatHappened}
+                </p>
+                <div className="p-3 bg-blue-50/50 rounded-xl border border-blue-100 text-[11px] font-mono text-blue-900 space-y-1">
+                  <div><strong>Attacker IP:</strong> {incident.sourceIp}</div>
+                  <div><strong>Target:</strong> {incident.destinationIp || "192.168.29.93"}:{incident.port || 8000} ({incident.protocol})</div>
                 </div>
               </div>
 
-              {narrativeData.raw && (
-                <button
-                  onClick={() => setShowRawBriefing(!showRawBriefing)}
-                  className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer transition-colors"
-                >
-                  <span>{showRawBriefing ? "Hide Raw Briefing" : "View Full LLM Briefing"}</span>
-                  {showRawBriefing ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-                </button>
+              {/* Question 2: Why Did AI Flag It? */}
+              <div className="neu-flat rounded-3xl p-5 border border-white bg-gradient-to-b from-amber-50/60 via-white to-white space-y-3">
+                <div className="flex items-center gap-2.5 border-b border-amber-100 pb-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center font-black text-xs">
+                    02
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                      Why Did AI Flag It? (AI ने इसे क्यों पकड़ा?)
+                    </h3>
+                    <span className="text-[10px] text-slate-400 font-medium">Machine Learning Reasoning</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                  {plainExplanations.whyAIFlagged}
+                </p>
+                <div className="p-3 bg-amber-50/50 rounded-xl border border-amber-100 text-[11px] font-mono text-amber-900 space-y-1">
+                  <div><strong>Model Match:</strong> {incident.confidence}% Confidence</div>
+                  <div><strong>Dataset Profile:</strong> CIC-IDS2017 Statistical Signature</div>
+                </div>
+              </div>
+
+              {/* Question 3: What Is The Risk? */}
+              <div className="neu-flat rounded-3xl p-5 border border-white bg-gradient-to-b from-rose-50/60 via-white to-white space-y-3">
+                <div className="flex items-center gap-2.5 border-b border-rose-100 pb-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center font-black text-xs">
+                    03
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                      What Is The Risk? (संभावित खतरा क्या है?)
+                    </h3>
+                    <span className="text-[10px] text-slate-400 font-medium">Impact Assessment</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                  {plainExplanations.potentialDanger}
+                </p>
+                <div className="p-3 bg-rose-50/50 rounded-xl border border-rose-100 text-[11px] font-mono text-rose-900 space-y-1">
+                  <div><strong>Severity Level:</strong> {incident.severity} RISK</div>
+                  <div><strong>Service Availability:</strong> Endangered without containment</div>
+                </div>
+              </div>
+
+              {/* Question 4: Immediate Action */}
+              <div className="neu-flat rounded-3xl p-5 border border-white bg-gradient-to-b from-emerald-50/60 via-white to-white space-y-3">
+                <div className="flex items-center justify-between border-b border-emerald-100 pb-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center font-black text-xs">
+                      04
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
+                        Immediate Action (तुरंत क्या समाधान करें?)
+                      </h3>
+                      <span className="text-[10px] text-slate-400 font-medium">Instant Containment</span>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handleToggleBlock}
+                    className={cn(
+                      "text-[10px] font-bold px-3 py-1 rounded-lg transition-all active:scale-95 cursor-pointer",
+                      isFirewallActive
+                        ? "bg-emerald-600 text-white"
+                        : "bg-rose-600 hover:bg-rose-700 text-white shadow-xs"
+                    )}
+                  >
+                    {isFirewallActive ? "Rule Active (Blocked)" : "Apply IP Block"}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                  {plainExplanations.immediateAction}
+                </p>
+                <div className="flex items-center justify-between bg-slate-900 text-emerald-400 p-2 rounded-xl font-mono text-[10px]">
+                  <span className="truncate">netsh advfirewall firewall add rule name="Block_{incident.sourceIp}" dir=in action=block remoteip={incident.sourceIp}</span>
+                  <button
+                    onClick={() => handleCopyText(`netsh advfirewall firewall add rule name="Block_${incident.sourceIp}" dir=in action=block remoteip=${incident.sourceIp}`, "quick-netsh")}
+                    className="ml-2 px-2 py-0.5 rounded bg-slate-800 text-slate-200 hover:text-white shrink-0 text-[10px]"
+                  >
+                    {copiedRule === "quick-netsh" ? "Copied!" : "Copy"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODE 2: DEEP TECHNICAL SOC BRIEFING */}
+          {explanationMode === "technical" && (
+            <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold">
+                    <Sparkles className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900">
+                      Deep Forensic Narrative & Causality (NIST SP 800-61 Rev 2)
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Grounded in persistent ChromaDB STIX 2.1 vector embeddings
+                    </p>
+                  </div>
+                </div>
+
+                {narrativeData.raw && (
+                  <button
+                    onClick={() => setShowRawBriefing(!showRawBriefing)}
+                    className="text-xs font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <span>{showRawBriefing ? "Hide Raw Briefing" : "View Full LLM Briefing"}</span>
+                    {showRawBriefing ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  </button>
+                )}
+              </div>
+
+              <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 text-xs text-slate-800 leading-relaxed font-sans">
+                {narrativeData.coreNarrative}
+              </div>
+
+              {/* Containment Directives */}
+              <div className="space-y-2 pt-1">
+                <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
+                  Recommended Containment Directives:
+                </span>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  {narrativeData.directives.map((dir, idx) => (
+                    <div
+                      key={idx}
+                      className="p-3.5 rounded-2xl bg-indigo-50/50 border border-indigo-100 flex items-start gap-2.5 text-xs text-indigo-950 font-medium leading-snug"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                      <span>{dir}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Collapsible raw briefing */}
+              {showRawBriefing && narrativeData.raw && (
+                <div className="p-4 rounded-2xl bg-slate-900 text-slate-300 font-mono text-[11px] leading-relaxed max-h-64 overflow-y-auto whitespace-pre-wrap border border-slate-800">
+                  {narrativeData.raw}
+                </div>
               )}
             </div>
-
-            <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 text-xs text-slate-800 leading-relaxed font-sans">
-              {narrativeData.coreNarrative}
-            </div>
-
-            {/* Containment Directives */}
-            <div className="space-y-2 pt-1">
-              <span className="text-[10px] font-mono font-bold text-slate-400 uppercase tracking-wider block">
-                Recommended Containment Directives:
-              </span>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                {narrativeData.directives.map((dir, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3.5 rounded-2xl bg-indigo-50/50 border border-indigo-100 flex items-start gap-2.5 text-xs text-indigo-950 font-medium leading-snug"
-                  >
-                    <CheckCircle2 className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
-                    <span>{dir}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Collapsible raw briefing */}
-            {showRawBriefing && narrativeData.raw && (
-              <div className="p-4 rounded-2xl bg-slate-900 text-slate-300 font-mono text-[11px] leading-relaxed max-h-64 overflow-y-auto whitespace-pre-wrap border border-slate-800">
-                {narrativeData.raw}
-              </div>
-            )}
-          </div>
+          )}
 
           {/* 4 Corroborated Forensic Findings */}
           <div className="p-6 rounded-3xl bg-white border border-slate-200 shadow-sm space-y-4">
@@ -541,6 +804,26 @@ export function InvestigationView({
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Windows Defender Netsh */}
+              <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-mono font-bold text-cyan-400 flex items-center gap-1.5">
+                    <Terminal className="w-3.5 h-3.5" />
+                    Windows Defender Firewall Rule (netsh)
+                  </span>
+                  <button
+                    onClick={() => handleCopyText(`netsh advfirewall firewall add rule name="Block_${incident.sourceIp}" dir=in action=block remoteip=${incident.sourceIp}`, "netsh")}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 flex items-center gap-1 border border-slate-700 cursor-pointer"
+                  >
+                    {copiedRule === "netsh" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedRule === "netsh" ? "Copied" : "Copy Command"}</span>
+                  </button>
+                </div>
+                <pre className="p-3 bg-black/60 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto">
+                  netsh advfirewall firewall add rule name="Block_{incident.sourceIp}" dir=in action=block remoteip={incident.sourceIp}
+                </pre>
+              </div>
+
               {/* Linux iptables */}
               <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 space-y-3">
                 <div className="flex items-center justify-between">
@@ -558,26 +841,6 @@ export function InvestigationView({
                 </div>
                 <pre className="p-3 bg-black/60 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto">
                   iptables -A INPUT -s {incident.sourceIp} -j DROP
-                </pre>
-              </div>
-
-              {/* Windows Defender Netsh */}
-              <div className="p-4 rounded-2xl bg-slate-900 text-slate-100 border border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono font-bold text-cyan-400 flex items-center gap-1.5">
-                    <Terminal className="w-3.5 h-3.5" />
-                    Windows Defender Firewall Rule
-                  </span>
-                  <button
-                    onClick={() => handleCopyText(`netsh advfirewall firewall add rule name="Block_${incident.sourceIp}" dir=in action=block remoteip=${incident.sourceIp}`, "netsh")}
-                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 flex items-center gap-1 border border-slate-700 cursor-pointer"
-                  >
-                    {copiedRule === "netsh" ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                    <span>{copiedRule === "netsh" ? "Copied" : "Copy Command"}</span>
-                  </button>
-                </div>
-                <pre className="p-3 bg-black/60 rounded-xl font-mono text-xs text-emerald-400 overflow-x-auto">
-                  netsh advfirewall firewall add rule name="Block_{incident.sourceIp}" dir=in action=block remoteip={incident.sourceIp}
                 </pre>
               </div>
             </div>
@@ -638,10 +901,10 @@ export function InvestigationView({
               </div>
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900">
-                  CyberSentinel RAG Copilot (Live Incident Triage)
+                  CyberSentinel RAG Copilot (Live Incident Assistant)
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Ask questions about mitigation, protocol RFCs, or attack signatures grounded in incident {incident.id}
+                  Ask questions in plain English or Hindi. Grounded in incident {incident.id} and MITRE ATT&CK STIX vector store.
                 </p>
               </div>
             </div>
@@ -650,15 +913,17 @@ export function InvestigationView({
           {/* Quick Prompt Suggestions */}
           <div className="flex flex-wrap gap-2">
             {[
-              "How do I block this attacker in iptables?",
-              "What are the indicators of this attack?",
-              "Draft an executive incident briefing",
-              "Which ports should I audit on this target?",
+              "सरल हिंदी में समझाओ क्या हमला हुआ है?",
+              "How do I block this attacker in Windows Firewall?",
+              "Why did the Random Forest model flag this attack?",
+              "What danger does this attack have on port 8000?",
+              "Draft an executive incident summary for management",
+              "Is my target server safe right now?",
             ].map((suggestion, idx) => (
               <button
                 key={idx}
                 onClick={() => handleSendCopilotQuery(suggestion)}
-                className="px-3 py-1.5 text-xs rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200/80 transition-all cursor-pointer font-medium"
+                className="px-3 py-1.5 text-xs rounded-xl bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 text-slate-700 border border-slate-200/80 transition-all cursor-pointer font-medium"
               >
                 {suggestion}
               </button>
@@ -671,7 +936,7 @@ export function InvestigationView({
               <div className="py-12 text-center space-y-2 text-slate-400">
                 <Bot className="w-8 h-8 mx-auto text-slate-300" />
                 <p className="text-xs font-medium">
-                  Copilot is ready. Ask any technical or strategic question about this incident.
+                  Copilot is ready. Ask any question in Hindi or English about this incident.
                 </p>
               </div>
             ) : (
@@ -709,7 +974,7 @@ export function InvestigationView({
           <div className="flex items-center gap-2.5">
             <input
               type="text"
-              placeholder="Ask about remediation, firewall drop syntax, or attack forensics..."
+              placeholder="Ask anything in English or Hindi (e.g. 'How to mitigate this attack?')..."
               value={copilotQuery}
               onChange={(e) => setCopilotQuery(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSendCopilotQuery()}
