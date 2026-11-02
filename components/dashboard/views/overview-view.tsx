@@ -44,6 +44,7 @@ import {
   fetchMonitoringMetrics,
   fetchAnalyticsSummary,
   clearAllAlerts,
+  resetMonitoringTelemetry,
   startMonitoringSession,
   stopMonitoringSession,
   ApiDashboardSummary,
@@ -274,7 +275,10 @@ export function OverviewView({
     setIsClearing(true);
     setBannerNotice(null);
     try {
-      const res = await clearAllAlerts();
+      const [res] = await Promise.all([
+        clearAllAlerts(),
+        resetMonitoringTelemetry().catch(() => null),
+      ]);
       setLiveAlerts([]);
       setSelectedAlertId(null);
       if (monitoringStatus) {
@@ -286,6 +290,21 @@ export function OverviewView({
           active_attack_source: null,
           attack_count: 0,
           alerts_created: 0,
+          flows_processed: 0,
+          benign_count: 0,
+          packets_captured: 0,
+        });
+      }
+      if (metrics) {
+        setMetrics({
+          ...metrics,
+          flows_processed: 0,
+          benign_count: 0,
+          attack_count: 0,
+          alerts_created: 0,
+          packets_captured: 0,
+          recent_flows: [],
+          packets_from_laptop_b: 0,
         });
       }
       if (liveKpis) {
@@ -299,13 +318,18 @@ export function OverviewView({
           resolved_alerts: 0,
           monitoring_alerts: 0,
           attack_count: 0,
+          flows_processed: 0,
+          benign_count: 0,
+          packets_captured: 0,
           is_active_attack: false,
           current_threat_level: "NORMAL",
           active_attack_type: null,
           active_attack_source: null,
         });
       }
-      setBannerNotice(`Cleared ${res.deleted_count} alerts. All threat indicators and counters reset to zero.`);
+      setBannerNotice(
+        `Cleared ${res.deleted_count} alerts. All threat indicators, flows, incidents, and counters reset to zero across all features.`
+      );
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("cybersentinel-refresh-all"));
       }

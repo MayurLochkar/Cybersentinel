@@ -132,14 +132,18 @@ export function DashboardLayout({
     async function loadLatestAlertIncident() {
       try {
         const alerts = await fetchAlerts();
-        if (isMounted && alerts.length > 0) {
-          const prioritized =
-            alerts.find((a) => a.severity === "CRITICAL") ||
-            alerts.find((a) => a.severity === "HIGH") ||
-            alerts.find((a) => !a.destination_ip?.startsWith("224.") && !a.destination_ip?.startsWith("239.")) ||
-            alerts[0];
-          setSelectedIncident(buildIncidentFromApiAlert(prioritized));
-          setReportIncidentId(prioritized.incident_id);
+        if (isMounted) {
+          if (alerts.length > 0) {
+            const prioritized =
+              alerts.find((a) => a.severity === "CRITICAL") ||
+              alerts.find((a) => a.severity === "HIGH") ||
+              alerts.find((a) => !a.destination_ip?.startsWith("224.") && !a.destination_ip?.startsWith("239.")) ||
+              alerts[0];
+            setSelectedIncident(buildIncidentFromApiAlert(prioritized));
+            setReportIncidentId(prioritized.incident_id);
+          } else {
+            setIncidentSubView("list");
+          }
         }
       } catch {
         // non-blocking

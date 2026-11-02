@@ -143,14 +143,16 @@ export function IncidentsView({
   const [toastMsg, setToastMsg] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isLiveConnected, setIsLiveConnected] = useState<boolean | null>(null);
 
   const loadData = async (silent = false) => {
     if (!silent) setIsLoading(true);
     try {
       const data = await fetchAlerts();
       setLiveAlerts(data);
+      setIsLiveConnected(true);
     } catch {
-      // Non-blocking
+      setIsLiveConnected(false);
     } finally {
       if (!silent) setIsLoading(false);
     }
@@ -171,15 +173,13 @@ export function IncidentsView({
     };
   }, []);
 
-  // Merge live database incidents with static fallback catalog
+  // Map live database incidents - reflects 0 items when cleared
   const incidentsList: Incident[] = useMemo(() => {
-    const liveItems = liveAlerts.map(buildIncidentFromApiAlert);
-    const existingIds = new Set(liveItems.map((i) => i.id));
-    const fallbackItems = CYBER_DATA.recentIncidents.filter(
-      (inc) => !existingIds.has(inc.id)
-    );
-    return [...liveItems, ...fallbackItems];
-  }, [liveAlerts]);
+    if (isLiveConnected === false && liveAlerts.length === 0) {
+      return CYBER_DATA.recentIncidents;
+    }
+    return liveAlerts.map(buildIncidentFromApiAlert);
+  }, [liveAlerts, isLiveConnected]);
 
   // Filtered incidents
   const filteredIncidents = useMemo(() => {

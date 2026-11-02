@@ -423,13 +423,27 @@ def clear_all_alerts(db: Session = Depends(get_db)):
     monitoring_manager.reset_telemetry()
     deleted = db.execute(delete(Alert)).rowcount
     db.commit()
+
+    # Clean live telemetry files from ledger catalog so Evidence Ledger resets cleanly
+    try:
+        ev_dir = Path(__file__).resolve().parent / "evidence_storage"
+        catalog_path = ev_dir / "ledger_catalog.json"
+        if catalog_path.exists():
+            with open(catalog_path, "r", encoding="utf-8") as f:
+                cat = json.load(f)
+            base_cat = [x for x in cat if not str(x.get("id", "")).startswith("EV-LIVE")]
+            with open(catalog_path, "w", encoding="utf-8") as f:
+                json.dump(base_cat, f, indent=2)
+    except Exception as ev_err:
+        logger.warning(f"Failed to reset ledger catalog: {ev_err}")
+
     return {
         "status": "success",
         "deleted_count": deleted,
         "total_alerts": 0,
         "critical": 0,
         "high_risk": 0,
-        "message": f"Cleared {deleted} alerts and reset all counters to 0.",
+        "message": f"Cleared {deleted} alerts and reset all counters to 0 across all features.",
     }
 
 
@@ -987,13 +1001,11 @@ def update_alert_status(
 
 
 @app.post("/api/alerts/clear")
-def clear_all_alerts(db: Session = Depends(get_db)):
+def clear_all_alerts_endpoint(db: Session = Depends(get_db)):
     """
-    Clears all stored alerts from the SQLite database so the dashboard starts fresh.
+    Clears all stored alerts from the SQLite database and resets all system telemetry.
     """
-    count = db.query(Alert).delete()
-    db.commit()
-    return {"status": "cleared", "deleted_count": count}
+    return clear_all_alerts(db)
 
 
 @app.post("/api/alerts/seed-demo")
