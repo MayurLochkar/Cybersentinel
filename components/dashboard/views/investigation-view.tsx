@@ -42,6 +42,9 @@ import {
   investigateIncidentWithAI,
   chatWithAICopilot,
   ApiAIInvestigationResponse,
+  blockFirewallIp,
+  unblockFirewallIp,
+  fetchBlockedIps,
 } from "@/lib/api";
 
 export function InvestigationView({
@@ -58,6 +61,7 @@ export function InvestigationView({
   const [copiedRule, setCopiedRule] = useState<string | null>(null);
   const [showRawBriefing, setShowRawBriefing] = useState(false);
   const [isFirewallActive, setIsFirewallActive] = useState(false);
+  const [droppedPacketsCount, setDroppedPacketsCount] = useState(0);
   const [toastMsg, setToastMsg] = useState("");
 
   // AI & RAG Copilot State
@@ -200,15 +204,51 @@ export function InvestigationView({
     setTimeout(() => setCopiedRule(null), 2000);
   };
 
-  const handleToggleBlock = () => {
+  // Synchronize firewall block status from backend
+  useEffect(() => {
+    let isMounted = true;
+    async function syncBlockedStatus() {
+      try {
+        const data = await fetchBlockedIps();
+        const rec = data.records.find((r) => r.ip === incident.sourceIp);
+        if (isMounted) {
+          setIsFirewallActive(!!rec);
+          if (rec) setDroppedPacketsCount(rec.packets_dropped);
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    syncBlockedStatus();
+    const interval = setInterval(syncBlockedStatus, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [incident.sourceIp]);
+
+  const handleToggleBlock = async () => {
     const nextState = !isFirewallActive;
-    setIsFirewallActive(nextState);
-    setToastMsg(
-      nextState
-        ? `Firewall rule applied: Inbound traffic from ${incident.sourceIp} is now BLOCKED.`
-        : `Firewall block rule deactivated for ${incident.sourceIp}.`
-    );
-    setTimeout(() => setToastMsg(""), 3500);
+    try {
+      if (nextState) {
+        await blockFirewallIp(incident.sourceIp, `AI Containment for incident ${incident.id}`, incident.id);
+        setIsFirewallActive(true);
+        setToastMsg(
+          `🛡️ Firewall Quarantined: Attacker IP (${incident.sourceIp}) is now BLOCKED. Any subsequent traffic will be automatically DROPPED at perimeter without generating alert noise.`
+        );
+      } else {
+        await unblockFirewallIp(incident.sourceIp);
+        setIsFirewallActive(false);
+        setDroppedPacketsCount(0);
+        setToastMsg(`Firewall block removed for ${incident.sourceIp}.`);
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("cybersentinel-refresh-all"));
+      }
+    } catch {
+      setToastMsg("Failed to communicate with firewall blocklist service.");
+    }
+    setTimeout(() => setToastMsg(""), 4500);
   };
 
   // Clean executive narrative helper
@@ -667,15 +707,43 @@ export function InvestigationView({
                   <button
                     onClick={handleToggleBlock}
                     className={cn(
-                      "text-[10px] font-bold px-3 py-1 rounded-lg transition-all active:scale-95 cursor-pointer",
+                      "text-[10px] font-bold px-3 py-1 rounded-lg transition-all active:scale-95 cursor-pointer flex items-center gap-1.5",
                       isFirewallActive
-                        ? "bg-emerald-600 text-white"
+                        ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
                         : "bg-rose-600 hover:bg-rose-700 text-white shadow-xs"
                     )}
                   >
-                    {isFirewallActive ? "Rule Active (Blocked)" : "Apply IP Block"}
+                    {isFirewallActive ? (
+                      <>
+                        <ShieldCheck className="w-3.5 h-3.5" />
+                        <span>Rule Active (Blocked)</span>
+                      </>
+                    ) : (
+                      <>
+                        <Ban className="w-3.5 h-3.5" />
+                        <span>Apply IP Block</span>
+                      </>
+                    )}
                   </button>
                 </div>
+
+                {isFirewallActive && (
+                  <div className="p-3 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-950 space-y-1">
+                    <div className="flex items-center justify-between font-bold flex-wrap gap-1">
+                      <span className="flex items-center gap-1.5 text-emerald-800">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                        <span>Active Perimeter Shield (Attacker Quarantined)</span>
+                      </span>
+                      <span className="font-mono text-[10px] bg-emerald-200/80 text-emerald-900 px-2 py-0.5 rounded-full font-bold">
+                        Packets Dropped: {droppedPacketsCount}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-700 leading-snug">
+                      🔒 Attacker IP <strong>{incident.sourceIp}</strong> ब्लॉक है। अगर attacker दोबारा पैकेट्स भेजता है, तो सिस्टम उन्हें बिना अलार्म बजाए पेरीमीटर पर ही चुपचाप <strong>DROP</strong> कर देगा!
+                    </p>
+                  </div>
+                )}
+
                 <p className="text-xs text-slate-700 leading-relaxed font-medium">
                   {plainExplanations.immediateAction}
                 </p>

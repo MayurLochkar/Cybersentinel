@@ -386,6 +386,11 @@ export function OverviewView({
               )}>
                 {backendConnected ? "Connected (FastAPI + SQLite + ML)" : backendConnected === false ? "Offline (Using Local Fallback)" : "Connecting..."}
               </span>
+              {Boolean(liveKpis?.firewall_active && liveKpis?.firewall_blocked_count && liveKpis.firewall_blocked_count > 0) && (
+                <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full uppercase bg-indigo-100 text-indigo-800 border border-indigo-200 flex items-center gap-1">
+                  <span>🛡️ Shield: {liveKpis?.firewall_blocked_count} Blocked ({liveKpis?.firewall_dropped_packets || 0} Dropped)</span>
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-slate-500">
               {backendConnected

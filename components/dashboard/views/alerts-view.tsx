@@ -26,7 +26,15 @@ import {
 } from "lucide-react";
 import { CYBER_DATA, Alert, Incident } from "@/data/cyberData";
 import { cn } from "@/lib/utils";
-import { fetchAlerts, updateAlertStatus, clearAllAlerts, ApiAlert } from "@/lib/api";
+import {
+  fetchAlerts,
+  updateAlertStatus,
+  clearAllAlerts,
+  ApiAlert,
+  blockFirewallIp,
+  unblockFirewallIp,
+  fetchBlockedIps,
+} from "@/lib/api";
 
 export function AlertsView({
   onSelectAlert,
@@ -54,9 +62,19 @@ export function AlertsView({
 
   const loadAlerts = async () => {
     try {
-      const data = await fetchAlerts();
-      setLiveBackendAlerts(data);
+      const [alertsData, firewallData] = await Promise.all([
+        fetchAlerts(),
+        fetchBlockedIps().catch(() => null),
+      ]);
+      setLiveBackendAlerts(alertsData);
       setIsLiveConnected(true);
+      if (firewallData?.stats?.blocked_ips) {
+        const ipMap: Record<string, boolean> = {};
+        firewallData.stats.blocked_ips.forEach((ip) => {
+          ipMap[ip] = true;
+        });
+        setBlockedIps(ipMap);
+      }
     } catch {
       setIsLiveConnected(false);
     }
@@ -156,15 +174,25 @@ export function AlertsView({
     }
   };
 
-  const handleToggleBlock = (ip: string) => {
+  const handleToggleBlock = async (ip: string) => {
     const isNowBlocked = !blockedIps[ip];
-    setBlockedIps((prev) => ({ ...prev, [ip]: isNowBlocked }));
-    setToastMsg(
-      isNowBlocked
-        ? `Firewall rule applied: Inbound traffic from ${ip} BLOCKED.`
-        : `Firewall block removed for ${ip}.`
-    );
-    setTimeout(() => setToastMsg(""), 3500);
+    try {
+      if (isNowBlocked) {
+        await blockFirewallIp(ip, "Quarantined via Alerts Matrix");
+        setBlockedIps((prev) => ({ ...prev, [ip]: true }));
+        setToastMsg(`🛡️ Firewall rule active: Inbound traffic from ${ip} is now BLOCKED & DROPPED at perimeter.`);
+      } else {
+        await unblockFirewallIp(ip);
+        setBlockedIps((prev) => ({ ...prev, [ip]: false }));
+        setToastMsg(`Firewall block removed for ${ip}.`);
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("cybersentinel-refresh-all"));
+      }
+    } catch {
+      setToastMsg(`Failed to communicate with firewall blocklist service.`);
+    }
+    setTimeout(() => setToastMsg(""), 4000);
   };
 
   const copyFirewallCommand = (ip: string) => {

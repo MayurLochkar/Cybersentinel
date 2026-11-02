@@ -44,6 +44,7 @@ from monitoring.manager import monitoring_manager
 from monitoring.live_capture import get_available_interfaces, is_pcap_available
 from monitoring.pcap_processor import PcapValidationError
 from monitoring.sample_pcap import generate_sample_pcap_bytes
+from monitoring.firewall_blocklist import firewall_blocklist
 from rag_service import rag_service
 from agentic_investigation import run_agentic_investigation
 from rag_copilot import (
@@ -447,6 +448,64 @@ def clear_all_alerts(db: Session = Depends(get_db)):
     }
 
 
+# ============================================================================
+# ACTIVE INTRUSION PREVENTION SYSTEM (IPS) & FIREWALL CONTAINMENT ENDPOINTS
+# ============================================================================
+
+class FirewallBlockRequest(BaseModel):
+    ip: str
+    reason: Optional[str] = "Manual containment by analyst"
+    incident_id: Optional[str] = None
+
+
+class FirewallUnblockRequest(BaseModel):
+    ip: str
+
+
+@app.post("/api/firewall/block")
+def block_firewall_ip_endpoint(req: FirewallBlockRequest):
+    """
+    Quarantines an attacker IP address in the active perimeter firewall blocklist.
+    Future packets from this source IP will be automatically DROPPED at perimeter
+    without generating alarm noise.
+    """
+    from monitoring.firewall_blocklist import firewall_blocklist
+    res = firewall_blocklist.block_ip(req.ip, req.reason or "Manual containment", req.incident_id)
+    return res
+
+
+@app.post("/api/firewall/unblock")
+def unblock_firewall_ip_endpoint(req: FirewallUnblockRequest):
+    """
+    Removes an IP from the quarantine blocklist and deletes OS firewall containment rules.
+    """
+    from monitoring.firewall_blocklist import firewall_blocklist
+    res = firewall_blocklist.unblock_ip(req.ip)
+    return res
+
+
+@app.get("/api/firewall/blocked")
+def get_firewall_blocked_endpoint():
+    """
+    Returns real-time status of all quarantined IPs, drop counters, and active rules.
+    """
+    from monitoring.firewall_blocklist import firewall_blocklist
+    return {
+        "stats": firewall_blocklist.get_stats(),
+        "records": firewall_blocklist.get_blocked_ips(),
+    }
+
+
+@app.post("/api/firewall/clear")
+def clear_firewall_blocklist_endpoint():
+    """
+    Clears all firewall blocks and resets drop counters.
+    """
+    from monitoring.firewall_blocklist import firewall_blocklist
+    firewall_blocklist.clear_all()
+    return {"status": "success", "message": "All firewall blocks cleared."}
+
+
 @app.get("/api/dashboard/summary")
 def dashboard_summary(db: Session = Depends(get_db)):
     total = db.scalar(select(func.count()).select_from(Alert)) or 0
@@ -509,6 +568,9 @@ def dashboard_summary(db: Session = Depends(get_db)):
         "active_attack_source": mon_status.get("active_attack_source"),
         "last_attack_seconds_ago": mon_status.get("last_attack_seconds_ago"),
         "laptop_b_ip": mon_status.get("laptop_b_ip"),
+        "firewall_blocked_count": len(firewall_blocklist.get_blocked_ips()),
+        "firewall_dropped_packets": firewall_blocklist.total_dropped_packets,
+        "firewall_active": firewall_blocklist.get_stats()["status"] == "ACTIVE",
     }
 
 

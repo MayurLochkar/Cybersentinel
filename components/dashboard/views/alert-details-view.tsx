@@ -25,7 +25,12 @@ import { Incident } from "@/data/cyberData";
 import { MitreModal } from "../mitre-modal";
 import { cn } from "@/lib/utils";
 
-import { updateAlertStatus } from "@/lib/api";
+import {
+  updateAlertStatus,
+  blockFirewallIp,
+  unblockFirewallIp,
+  fetchBlockedIps,
+} from "@/lib/api";
 
 export function AlertDetailsView({
   incident,
@@ -44,6 +49,24 @@ export function AlertDetailsView({
   const [isUpdating, setIsUpdating] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [copiedCmd, setCopiedCmd] = useState(false);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    async function checkBlocked() {
+      try {
+        const data = await fetchBlockedIps();
+        if (isMounted) {
+          setIsBlocked(data.stats.blocked_ips.includes(incident.sourceIp));
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    checkBlocked();
+    return () => {
+      isMounted = false;
+    };
+  }, [incident.sourceIp]);
 
   const handleUpdateStatus = async (newStatus: "Open" | "Investigating" | "Resolved") => {
     setIsUpdating(true);
@@ -306,14 +329,25 @@ export function AlertDetailsView({
                   1. Firewall Inbound Block
                 </span>
                 <button
-                  onClick={() => {
-                    setIsBlocked(!isBlocked);
-                    setToastMsg(
-                      !isBlocked
-                        ? `Firewall rule applied: Inbound traffic from ${incident.sourceIp} BLOCKED.`
-                        : `Firewall block removed for ${incident.sourceIp}.`
-                    );
-                    setTimeout(() => setToastMsg(""), 3500);
+                  onClick={async () => {
+                    const nextState = !isBlocked;
+                    try {
+                      if (nextState) {
+                        await blockFirewallIp(incident.sourceIp, `Contained via Alert Details ${incident.id}`, incident.id);
+                        setIsBlocked(true);
+                        setToastMsg(`🛡️ Firewall rule applied: Inbound traffic from ${incident.sourceIp} is now BLOCKED & DROPPED.`);
+                      } else {
+                        await unblockFirewallIp(incident.sourceIp);
+                        setIsBlocked(false);
+                        setToastMsg(`Firewall block removed for ${incident.sourceIp}.`);
+                      }
+                      if (typeof window !== "undefined") {
+                        window.dispatchEvent(new CustomEvent("cybersentinel-refresh-all"));
+                      }
+                    } catch {
+                      setToastMsg("Failed to communicate with firewall blocklist service.");
+                    }
+                    setTimeout(() => setToastMsg(""), 4000);
                   }}
                   className={cn(
                     "text-[10px] font-bold px-2 py-1 rounded-lg transition-all active:scale-95",

@@ -277,7 +277,7 @@ class LiveCaptureSession:
             total_hdr_len = ip_hdr_len + trans_hdr_len
 
             # Update live connection rate diagnostics and detect rapid incomplete handshakes
-            anomaly_detector.record_packet(
+            anomaly_res = anomaly_detector.record_packet(
                 src_ip=src_ip,
                 dst_ip=dst_ip,
                 src_port=src_port,
@@ -287,6 +287,11 @@ class LiveCaptureSession:
                 timestamp=ts,
                 payload_len=payload_len,
             )
+
+            # Perimeter Firewall Drop: If IP is blocked, immediately drop packet and prevent socket flow tracking
+            from monitoring.firewall_blocklist import firewall_blocklist
+            if firewall_blocklist.is_blocked(src_ip):
+                return
 
             closed_flow = self.aggregator.ingest_packet(
                 src_ip=src_ip,

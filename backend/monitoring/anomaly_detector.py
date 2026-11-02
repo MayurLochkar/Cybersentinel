@@ -186,6 +186,31 @@ class LiveAnomalyDetector:
         with self._lock:
             self.packets_received_total += 1
 
+            # 1. Intrusion Prevention & Firewall Blocklist Enforcement
+            from monitoring.firewall_blocklist import firewall_blocklist
+            if firewall_blocklist.is_blocked(src_ip):
+                dropped_count = firewall_blocklist.record_dropped_packet(src_ip, dst_port)
+                self.last_packet_snapshot = {
+                    "timestamp": timestamp,
+                    "source_ip": src_ip,
+                    "destination_ip": dst_ip,
+                    "source_port": src_port,
+                    "destination_port": dst_port,
+                    "protocol": proto,
+                    "flags": flags,
+                    "firewall_action": "BLOCKED_DROPPED",
+                    "dropped_count": dropped_count,
+                }
+                # Blocked traffic is safely dropped at perimeter; no alert is generated.
+                return {
+                    "is_anomaly": False,
+                    "is_blocked": True,
+                    "firewall_action": "DROPPED",
+                    "source_ip": src_ip,
+                    "dropped_count": dropped_count,
+                    "message": f"Inbound packet from {src_ip} intercepted and dropped by active firewall rule.",
+                }
+
             # Check if addressed to Laptop A
             if dst_ip in self.host_ips:
                 self.packets_addressed_to_host += 1
@@ -338,6 +363,12 @@ class LiveAnomalyDetector:
                 "last_packet_snapshot": self.last_packet_snapshot,
             }
             diag.update(active_state)
+
+            from monitoring.firewall_blocklist import firewall_blocklist
+            fw_stats = firewall_blocklist.get_stats()
+            diag["firewall_blocked_ips"] = fw_stats["blocked_ips"]
+            diag["firewall_dropped_packets"] = fw_stats["total_dropped_packets"]
+            diag["firewall_shield_active"] = fw_stats["status"] == "ACTIVE"
             return diag
 
 

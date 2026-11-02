@@ -38,6 +38,9 @@ export interface ApiDashboardSummary {
   active_attack_source?: string | null;
   last_attack_seconds_ago?: number | null;
   laptop_b_ip?: string | null;
+  firewall_blocked_count?: number;
+  firewall_dropped_packets?: number;
+  firewall_active?: boolean;
 }
 
 
@@ -893,6 +896,80 @@ export async function queryRAGKnowledge(query: string, topK: number = 3): Promis
   if (!res.ok) throw new Error("Failed to query RAG knowledge store");
   return res.json();
 }
+
+export interface BlockedIpRecord {
+  ip: string;
+  status: "BLOCKED";
+  blocked_at: string;
+  reason: string;
+  incident_id?: string;
+  packets_dropped: number;
+  last_dropped_at?: string;
+  os_rule_applied: boolean;
+  os_rule_msg: string;
+}
+
+export interface FirewallBlockedResponse {
+  stats: {
+    active_blocks_count: number;
+    total_dropped_packets: number;
+    blocked_ips: string[];
+    status: "ACTIVE" | "IDLE";
+  };
+  records: BlockedIpRecord[];
+}
+
+/**
+ * Fetch all quarantined IPs from the persistent perimeter firewall blocklist
+ */
+export async function fetchBlockedIps(): Promise<FirewallBlockedResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/firewall/blocked`, { cache: "no-store" });
+  if (!res.ok) throw new Error("Failed to fetch blocked IPs");
+  return res.json();
+}
+
+/**
+ * Quarantines an attacker IP address in the firewall blocklist.
+ * Inbound packets from this IP will be automatically DROPPED at perimeter.
+ */
+export async function blockFirewallIp(
+  ip: string,
+  reason?: string,
+  incidentId?: string
+): Promise<{ status: string; record: BlockedIpRecord }> {
+  const res = await fetch(`${API_BASE_URL}/api/firewall/block`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ip, reason, incident_id: incidentId }),
+  });
+  if (!res.ok) throw new Error("Failed to block IP");
+  return res.json();
+}
+
+/**
+ * Removes an IP from quarantine and deletes OS firewall rules
+ */
+export async function unblockFirewallIp(ip: string): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/firewall/unblock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ip }),
+  });
+  if (!res.ok) throw new Error("Failed to unblock IP");
+  return res.json();
+}
+
+/**
+ * Clears all firewall quarantined IPs
+ */
+export async function clearFirewallBlocklist(): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/firewall/clear`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error("Failed to clear firewall blocklist");
+  return res.json();
+}
+
 
 
 
