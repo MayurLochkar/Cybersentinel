@@ -272,6 +272,64 @@ python trigger_real_attack.py
 
 ---
 
+## ⚔️ Multi-Laptop / Mentor Demonstration Guide (Authorized Lab Attack Simulation)
+
+For live project evaluation, viva, or mentor demonstrations, CyberSentinel includes an authorized, safety-bounded dual-laptop traffic generator (`laptop_b_traffic_generator.py`). This script requires **zero third-party dependencies** (pure Python standard library) and safely simulates multi-class attacks over Wi-Fi / Local Area Network.
+
+### 📋 Lab Setup Prerequisites
+1. **Laptop A (Defender / SOC Server):** Runs the CyberSentinel backend (`uvicorn main:app --host 0.0.0.0 --port 8000`) and frontend (`npm run dev`). Find its local IPv4 address by running `ipconfig` (e.g. `10.156.238.1` or `192.168.29.93`).
+2. **Laptop B (Attacker / Traffic Generator):** Connected to the same Wi-Fi / LAN router or mobile hotspot.
+
+---
+
+### 🚀 Running the Attack Simulation from Laptop B
+
+#### Method 1: Interactive Menu (Recommended for Mentors)
+Run the script without `--mode` to launch an interactive 1–8 terminal menu. You can trigger any attack on demand with a single keystroke in front of mentors:
+```bash
+python laptop_b_traffic_generator.py --target-ip <LAPTOP_A_IP> --authorized
+```
+*Example:*
+```bash
+python laptop_b_traffic_generator.py --target-ip 10.156.238.1 --authorized
+```
+
+#### Method 2: Direct Single-Command Execution
+You can also trigger individual attack scenarios directly using flags:
+
+| Scenario / Attack | Command on Laptop B | Expected SOC Result |
+|---|---|---|
+| **1. Normal Benign Traffic** | `python laptop_b_traffic_generator.py --target-ip <LAPTOP_A_IP> --mode baseline --authorized` | **Status: NORMAL (0 Alerts)**. Demonstrates zero false positives for legitimate traffic. |
+| **2. Single-Source DoS (SYN Flood)** | `python laptop_b_traffic_generator.py --target-ip <LAPTOP_A_IP> --target-port 8000 --mode syn --authorized` | **Status: CRITICAL Alert**. High-velocity connection burst detected and classified. |
+| **3. HTTP Application DoS** | `python laptop_b_traffic_generator.py --target-ip <LAPTOP_A_IP> --target-port 8000 --mode http --authorized` | **Status: HIGH Alert**. Rapid HTTP GET request stream flagged by connection tracker. |
+| **4. Port Scan Reconnaissance** | `python laptop_b_traffic_generator.py --target-ip <LAPTOP_A_IP> --mode portscan --authorized` | **Status: MEDIUM Alert**. Sequential port probes mapped to MITRE T1046 / T1205. |
+| **5. SSH Credential Brute Force** | `python laptop_b_traffic_generator.py --target-ip <LAPTOP_A_IP> --mode ssh --authorized` | **Status: HIGH Alert**. Automated password dictionary spray mapped to MITRE T1110. |
+| **6. FTP Login Brute Force** | `python laptop_b_traffic_generator.py --target-ip <LAPTOP_A_IP> --mode ftp --authorized` | **Status: HIGH Alert**. Rapid authentication retry anomalies flagged. |
+| **7. Web Exploitation (SQLi/XSS)** | `python laptop_b_traffic_generator.py --target-ip <LAPTOP_A_IP> --target-port 8000 --mode web --authorized` | **Status: CRITICAL/HIGH Alert**. OWASP injection syntax detected in application queries. |
+
+---
+
+### 🖥️ What to Show Mentors on Laptop A (Live SOC Dashboard)
+
+1. **Live Monitor & Alerts Badge:**
+   - The top header alert badge lights up red (e.g. `1 CRITICAL` or `1 HIGH`).
+   - The Live Monitor displays the real-time packet velocity burst and anomaly probability in the telemetry chart.
+2. **Incidents Log & 5-Tuple Forensic Dossier:**
+   - An incident record appears displaying Laptop B's exact source IP, destination port, ML confidence score, and chronological timeline.
+3. **AI Investigation View (RAG & MITRE ATT&CK):**
+   - Click **AI Investigation** to show the automated root-cause analysis:
+     - **Visual Flow Diagram:** Shows Laptop B as Attacker Device ➔ Attack Vector ➔ ML Random Forest Classifier Match ➔ Target Status.
+     - **Executive Triage (Plain English):** Clearly explains *What Happened*, *Why Did AI Flag It*, *What Is The Risk*, and *Immediate Action*.
+     - **RAG Copilot Chat:** Click quick suggestion prompts (e.g., *"How do I block this attacker?"*) to demonstrate the interactive LangChain assistant.
+4. **Active Defense (Firewall Containment):**
+   - Click **"Apply IP Block"** in the AI Investigation panel to automatically quarantine Laptop B's IP address.
+5. **Cryptographic Evidence Ledger:**
+   - Navigate to **Evidence Ledger** to display the SHA-256 cryptographic seal verifying packet evidence integrity.
+6. **Executive Incident Report:**
+   - Go to **Reports** to download the complete formal incident dossier.
+
+---
+
 ## 🛡️ MITRE ATT&CK Framework Mapping
 
 CyberSentinel dynamically correlates detected network anomalies to established MITRE techniques:

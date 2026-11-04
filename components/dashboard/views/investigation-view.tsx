@@ -51,10 +51,12 @@ export function InvestigationView({
   incident,
   onGenerateReport,
   onNavigateTab,
+  onLoadSampleIncident,
 }: {
-  incident: Incident;
+  incident: Incident | null;
   onGenerateReport: () => void;
   onNavigateTab: (tab: string) => void;
+  onLoadSampleIncident?: () => void;
 }) {
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<"triage" | "containment" | "copilot">("triage");
   const [explanationMode, setExplanationMode] = useState<"simple" | "technical">("simple");
@@ -73,6 +75,156 @@ export function InvestigationView({
   const [chatHistory, setChatHistory] = useState<
     Array<{ role: "user" | "copilot"; content: string; technique?: string; provider?: string }>
   >([]);
+
+  // Auto-run investigation on mount / incident change
+  useEffect(() => {
+    if (!incident) return;
+    let isMounted = true;
+    async function autoRun() {
+      setIsAiLoading(true);
+      setAiError(null);
+      try {
+        const res = await investigateIncidentWithAI({
+          incident_id: incident!.id,
+          attack_type: incident!.attackType,
+          source_ip: incident!.sourceIp,
+          destination_ip: incident!.destinationIp || "192.168.29.93",
+          confidence: incident!.risk?.score ?? incident!.confidence ?? 85,
+          reason: incident!.investigation?.summary || incident!.aiExplanation?.description || "",
+        });
+        if (isMounted) {
+          setAiReport(res);
+        }
+      } catch (err: any) {
+        console.error("Auto AI Investigation error:", err);
+        if (isMounted) {
+          setAiError(err?.message || "Unable to contact RAG engine");
+        }
+      } finally {
+        if (isMounted) {
+          setIsAiLoading(false);
+        }
+      }
+    }
+
+    autoRun();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [incident?.id]);
+
+  // Synchronize firewall block status from backend
+  useEffect(() => {
+    if (!incident) return;
+    const targetSourceIp = incident.sourceIp;
+    let isMounted = true;
+    async function syncBlockedStatus() {
+      try {
+        const data = await fetchBlockedIps();
+        const rec = data.records.find((r) => r.ip === targetSourceIp);
+        if (isMounted) {
+          setIsFirewallActive(!!rec);
+          if (rec) setDroppedPacketsCount(rec.packets_dropped);
+        }
+      } catch {
+        // Fallback
+      }
+    }
+    syncBlockedStatus();
+    const interval = setInterval(syncBlockedStatus, 3000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [incident?.sourceIp]);
+
+  // If there is no active incident/attack, show clean SOC Standby screen
+  if (!incident) {
+    return (
+      <div className="space-y-6 pb-12 max-w-7xl mx-auto">
+        <div className="neu-flat rounded-3xl p-8 sm:p-12 border border-white bg-white/80 shadow-xs text-center space-y-6">
+          <div className="relative mx-auto w-20 h-20 rounded-3xl bg-gradient-to-tr from-[#6F3DFF]/20 via-[#BFE9FF]/40 to-emerald-500/10 flex items-center justify-center border border-[#6F3DFF]/30 shadow-md">
+            <ShieldCheck className="w-10 h-10 text-[#6F3DFF]" />
+            <span className="absolute -top-1 -right-1 flex h-4 w-4">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500 border-2 border-white" />
+            </span>
+          </div>
+
+          <div className="max-w-xl mx-auto space-y-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              PERIMETER SECURE — NO ACTIVE ATTACKS
+            </span>
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
+              AI Autonomous Threat Investigation
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-600 leading-relaxed font-medium">
+              The real-time network sniffer and Random Forest ML classifier are actively monitoring incoming packets. When an attack or anomalous traffic flow is detected, full automated forensic triage, root-cause analysis, and MITRE ATT&CK correlation will appear here immediately.
+            </p>
+          </div>
+
+          {/* Real-Time Sensor Metrics */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 max-w-2xl mx-auto text-left pt-2">
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-1">
+              <div className="flex items-center gap-2 text-slate-500 text-[11px] font-mono font-semibold">
+                <Radio className="w-3.5 h-3.5 text-[#6F3DFF]" />
+                Sensor Status
+              </div>
+              <div className="text-sm font-bold text-slate-900">Listening (Live)</div>
+              <p className="text-[10px] text-slate-500">Wi-Fi & Ethernet packet interception</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-1">
+              <div className="flex items-center gap-2 text-slate-500 text-[11px] font-mono font-semibold">
+                <BrainCircuit className="w-3.5 h-3.5 text-emerald-600" />
+                ML Engine
+              </div>
+              <div className="text-sm font-bold text-slate-900">CICIDS2017 RF</div>
+              <p className="text-[10px] text-slate-500">70-feature flow classification</p>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/70 space-y-1">
+              <div className="flex items-center gap-2 text-slate-500 text-[11px] font-mono font-semibold">
+                <Bot className="w-3.5 h-3.5 text-indigo-600" />
+                RAG Copilot
+              </div>
+              <div className="text-sm font-bold text-slate-900">Vector Store Ready</div>
+              <p className="text-[10px] text-slate-500">STIX 2.1 ChromaDB index online</p>
+            </div>
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+            <button
+              onClick={() => onNavigateTab("monitoring")}
+              className="px-4 py-2.5 rounded-full bg-[#6F3DFF] text-white text-xs font-bold shadow-md hover:bg-[#5b2cd9] transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <Radio className="w-3.5 h-3.5" />
+              View Live Packet Monitor
+            </button>
+            <button
+              onClick={() => onNavigateTab("incidents")}
+              className="px-4 py-2.5 rounded-full bg-white text-slate-700 text-xs font-bold border border-slate-200 shadow-xs hover:bg-slate-50 transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              View Historical Incidents Log
+            </button>
+            {onLoadSampleIncident && (
+              <button
+                onClick={onLoadSampleIncident}
+                className="px-4 py-2.5 rounded-full bg-slate-100 text-slate-600 text-xs font-bold border border-slate-200 hover:bg-slate-200 transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                Preview Sample Incident Dossier
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const inv = incident.investigation || {
     status: incident.status || "Investigating",
@@ -122,43 +274,6 @@ export function InvestigationView({
     }
   };
 
-  // Auto-run investigation on mount / incident change
-  useEffect(() => {
-    let isMounted = true;
-    async function autoRun() {
-      setIsAiLoading(true);
-      setAiError(null);
-      try {
-        const res = await investigateIncidentWithAI({
-          incident_id: incident.id,
-          attack_type: incident.attackType,
-          source_ip: incident.sourceIp,
-          destination_ip: incident.destinationIp || "192.168.29.93",
-          confidence: incident.risk?.score ?? incident.confidence ?? 85,
-          reason: inv.summary || incident.aiExplanation?.description || "",
-        });
-        if (isMounted) {
-          setAiReport(res);
-        }
-      } catch (err: any) {
-        console.error("Auto AI Investigation error:", err);
-        if (isMounted) {
-          setAiError(err?.message || "Unable to contact RAG engine");
-        }
-      } finally {
-        if (isMounted) {
-          setIsAiLoading(false);
-        }
-      }
-    }
-
-    autoRun();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [incident.id]);
-
   // Submit Copilot Query
   const handleSendCopilotQuery = async (queryText?: string) => {
     const text = (queryText || copilotQuery).trim();
@@ -203,29 +318,6 @@ export function InvestigationView({
     setCopiedRule(id);
     setTimeout(() => setCopiedRule(null), 2000);
   };
-
-  // Synchronize firewall block status from backend
-  useEffect(() => {
-    let isMounted = true;
-    async function syncBlockedStatus() {
-      try {
-        const data = await fetchBlockedIps();
-        const rec = data.records.find((r) => r.ip === incident.sourceIp);
-        if (isMounted) {
-          setIsFirewallActive(!!rec);
-          if (rec) setDroppedPacketsCount(rec.packets_dropped);
-        }
-      } catch {
-        // Fallback
-      }
-    }
-    syncBlockedStatus();
-    const interval = setInterval(syncBlockedStatus, 3000);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [incident.sourceIp]);
 
   const handleToggleBlock = async () => {
     const nextState = !isFirewallActive;
@@ -300,36 +392,80 @@ export function InvestigationView({
   const isPortScan = incident.attackType?.toLowerCase().includes("scan");
   const isSSH = incident.attackType?.toLowerCase().includes("ssh");
   const isFTP = incident.attackType?.toLowerCase().includes("ftp");
-  const isWeb = incident.attackType?.toLowerCase().includes("web");
-  const isDoS = incident.attackType?.toLowerCase().includes("dos") || incident.attackType?.toLowerCase().includes("syn");
+  const isWeb = incident.attackType?.toLowerCase().includes("web") || incident.attackType?.toLowerCase().includes("sql") || incident.attackType?.toLowerCase().includes("xss");
+  const isDoS = incident.attackType?.toLowerCase().includes("dos") || incident.attackType?.toLowerCase().includes("syn") || incident.attackType?.toLowerCase().includes("exhaustion");
+  const isBotnet = incident.attackType?.toLowerCase().includes("bot");
+  const isInfiltration = incident.attackType?.toLowerCase().includes("infil");
+  const isHeartbleed = incident.attackType?.toLowerCase().includes("heartbleed");
+  const isBruteForce = incident.attackType?.toLowerCase().includes("brute") || isSSH || isFTP;
 
-  // Plain-Language Explanations (Easily understandable for any user)
+  const transmissionDescription = isDoS
+    ? "TCP SYN / High-Velocity Burst"
+    : isPortScan
+    ? "Multi-Port Reconnaissance Probe"
+    : isWeb
+    ? "HTTP Payload / Query Injection"
+    : isBotnet
+    ? "Periodic C2 Beaconing Channel"
+    : isInfiltration
+    ? "Lateral Movement / Remote Execution"
+    : isHeartbleed
+    ? "Malformed TLS Heartbeat Request"
+    : isBruteForce
+    ? "Automated Credential Spray"
+    : "Anomalous Packet Telemetry Flow";
+
+  // Plain-Language Explanations (Comprehensive and easily understandable for ANY attack)
   const plainExplanations = {
     whatHappened: isDoS
-      ? `Attacker computer (${incident.sourceIp}) sent a high-velocity flood of incomplete TCP SYN connection requests to your server on Port ${incident.port || 8000}. By sending dozens of requests per second without finishing the connection handshake, it tried to exhaust your server's memory and connection slots.`
+      ? `Attacker computer (${incident.sourceIp}) sent a high-velocity flood of connection requests to your server on ${incident.target || `Port ${incident.port || 8000}`}. By sending dozens of rapid requests without completing standard handshakes, it attempted to exhaust server socket capacity and cause service denial.`
       : isPortScan
-      ? `Attacker computer (${incident.sourceIp}) was actively scanning multiple ports on your network to discover which services and applications are running and find open vulnerabilities.`
-      : isSSH
-      ? `Attacker computer (${incident.sourceIp}) attempted an automated dictionary brute-force password spray targeting SSH service (Port 22) trying to gain unauthorized remote access.`
-      : isFTP
-      ? `Attacker computer (${incident.sourceIp}) flooded the FTP service (Port 21) with rapid login attempts attempting to crack user credentials.`
+      ? `Attacker computer (${incident.sourceIp}) actively probed multiple ports on your network to discover active running services, listening daemons, and potential security openings.`
       : isWeb
-      ? `Attacker computer (${incident.sourceIp}) injected suspicious web payloads (SQL injection or XSS scripting) into web application endpoints.`
-      : `Anomalous network telemetry was detected originating from ${incident.sourceIp} targeting your server on Port ${incident.port || 8000}.`,
+      ? `Attacker computer (${incident.sourceIp}) transmitted unauthorized web exploitation payloads (such as SQL injection or cross-site scripting) targeting web endpoints on ${incident.target || `Port ${incident.port || 8000}`}.`
+      : isBotnet
+      ? `Attacker or compromised device (${incident.sourceIp}) established unauthorized command-and-control (C2) communication channels, initiating automated periodic beaconing.`
+      : isInfiltration
+      ? `Attacker computer (${incident.sourceIp}) attempted lateral movement and privilege escalation across internal network boundaries, targeting sensitive service ports.`
+      : isHeartbleed
+      ? `Attacker computer (${incident.sourceIp}) exploited OpenSSL TLS Heartbeat length validation flaws, attempting to read server process memory and extract cryptographic material.`
+      : isBruteForce
+      ? `Attacker computer (${incident.sourceIp}) executed high-frequency automated credential dictionary attacks targeting authentication interfaces to breach access credentials.`
+      : `Anomalous network telemetry was detected originating from ${incident.sourceIp} targeting your server on ${incident.target || `Port ${incident.port || 8000}`}.`,
 
     whyAIFlagged: isDoS
-      ? `The Machine Learning model (Random Forest trained on CIC-IDS2017) observed packet burst velocity exceeding the 99th percentile baseline, with 100% asymmetric forward-only SYN flags and 0 completed handshakes (${incident.confidence}% match).`
+      ? `The Machine Learning model observed connection velocity and packet burst rates exceeding baseline distributions, with high asymmetric forward flags (${incident.confidence}% match).`
       : isPortScan
-      ? `AI detected an abnormal number of distinct destination ports probed in a short time window, diverging sharply from normal legitimate browsing patterns (${incident.confidence}% match).`
-      : `The flow exhibited high packet frequency, repetitive authentication requests, and rapid reset flags typical of automated brute-force scripts (${incident.confidence}% match).`,
+      ? `AI detected an abnormal entropy of probed destination ports within a short time window, characteristic of network discovery scanners (${incident.confidence}% match).`
+      : isWeb
+      ? `The flow exhibited malicious application-layer request patterns and query parameter anomalies matching verified OWASP intrusion signatures (${incident.confidence}% match).`
+      : isBotnet
+      ? `The classifier detected periodic connection periodicity and low-jitter packet bursts matching known Botnet C2 telemetry (${incident.confidence}% match).`
+      : isInfiltration
+      ? `Anomalous inter-subnet traffic volumes and abnormal payload sizes triggered lateral movement detection rules (${incident.confidence}% match).`
+      : isHeartbleed
+      ? `TLS record payload length divergence detected, where requested heartbeat length drastically exceeded transmitted payload bytes (${incident.confidence}% match).`
+      : isBruteForce
+      ? `Rapid succession of authentication handshake resets and high connection repetition rates typical of automated credential sprays (${incident.confidence}% match).`
+      : `Flow features exhibited statistically significant divergence from standard baseline traffic distributions (${incident.confidence}% match).`,
 
     potentialDanger: isDoS
-      ? `If left unblocked, your service on Port ${incident.port || 8000} can freeze or crash, preventing genuine users from accessing your application (Denial of Service).`
+      ? `If left unblocked, your service can freeze or crash, causing service downtime and preventing legitimate users from accessing your application.`
       : isPortScan
-      ? `The attacker is actively mapping your system to launch a targeted exploit on open, vulnerable services.`
-      : `The attacker could guess administrative credentials and take over host access remotely.`,
+      ? `The attacker is actively enumerating your infrastructure to identify vulnerable software versions for a targeted secondary exploit.`
+      : isWeb
+      ? `Attackers could extract proprietary database records, manipulate backend state, or hijack authenticated user sessions.`
+      : isBotnet
+      ? `Compromised internal assets can be conscripted into external DDoS attacks or used as jump hosts for deep persistent network intrusion.`
+      : isInfiltration
+      ? `Adversaries can obtain root/domain administrator privileges, deploy ransomware, or exfiltrate sensitive organizational databases.`
+      : isHeartbleed
+      ? `Private SSL/TLS certificates and in-memory session tokens could be exposed to remote unauthorized attackers.`
+      : isBruteForce
+      ? `Attackers could successfully crack administrative credentials, gaining persistent remote shell or desktop access.`
+      : `Unauthorized network interaction poses availability, confidentiality, and integrity risks to target hosts.`,
 
-    immediateAction: `Add a firewall drop rule on your host or router to immediately disconnect and block all inbound packets from ${incident.sourceIp}.`,
+    immediateAction: `Add a firewall drop rule on your host or perimeter router to immediately disconnect and block all inbound packets from ${incident.sourceIp}.`,
   };
 
   return (
@@ -349,15 +485,19 @@ export function InvestigationView({
             <div className={cn(
               "w-14 h-14 rounded-2xl text-white flex items-center justify-center shrink-0 shadow-lg",
               isPortScan ? "bg-cyan-600 shadow-cyan-600/25" :
-              isSSH ? "bg-amber-600 shadow-amber-600/25" :
-              isFTP ? "bg-yellow-600 shadow-yellow-600/25" :
+              isBruteForce ? "bg-amber-600 shadow-amber-600/25" :
               isWeb ? "bg-purple-600 shadow-purple-600/25" :
+              isBotnet ? "bg-indigo-600 shadow-indigo-600/25" :
+              isHeartbleed ? "bg-pink-600 shadow-pink-600/25" :
+              isInfiltration ? "bg-emerald-700 shadow-emerald-700/25" :
               "bg-rose-600 shadow-rose-600/25 animate-pulse"
             )}>
               {isPortScan ? <Radar className="w-7 h-7" /> :
-               isSSH ? <Key className="w-7 h-7" /> :
-               isFTP ? <Terminal className="w-7 h-7" /> :
+               isBruteForce ? <Key className="w-7 h-7" /> :
                isWeb ? <Globe className="w-7 h-7" /> :
+               isBotnet ? <Bot className="w-7 h-7" /> :
+               isHeartbleed ? <Lock className="w-7 h-7" /> :
+               isInfiltration ? <Layers className="w-7 h-7" /> :
                <ShieldAlert className="w-7 h-7" />}
             </div>
 
@@ -469,7 +609,7 @@ export function InvestigationView({
           <div className="flex items-center gap-2">
             <Zap className="w-4 h-4 text-amber-500" />
             <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-              Live Attack Telemetry Flow (हमले का दृश्य प्रवाह)
+              Live Attack Telemetry Flow
             </h3>
           </div>
           <span className="text-[10px] font-mono text-slate-400">
@@ -495,7 +635,7 @@ export function InvestigationView({
             </div>
             <div className="text-[10px] font-bold uppercase text-amber-800">2. Attack Transmission</div>
             <div className="text-xs font-black text-slate-900 truncate">{incident.attackType}</div>
-            <div className="text-[9px] text-amber-700/80 font-medium">TCP SYN / High Velocity Burst</div>
+            <div className="text-[9px] text-amber-700/80 font-medium truncate">{transmissionDescription}</div>
           </div>
 
           {/* Node 3: AI Detector */}
@@ -587,7 +727,7 @@ export function InvestigationView({
               )}
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Easy & Clear (सरल सारांश)</span>
+              <span>Executive Summary</span>
             </button>
             <button
               onClick={() => setExplanationMode("technical")}
@@ -599,7 +739,7 @@ export function InvestigationView({
               )}
             >
               <Terminal className="w-3.5 h-3.5" />
-              <span>Deep Technical (तकनीकी)</span>
+              <span>Deep Technical Details</span>
             </button>
           </div>
         )}
@@ -632,7 +772,7 @@ export function InvestigationView({
                   </div>
                   <div>
                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                      What Happened? (क्या हमला हुआ?)
+                      What Happened?
                     </h3>
                     <span className="text-[10px] text-slate-400 font-medium">Attack Context & Target</span>
                   </div>
@@ -654,7 +794,7 @@ export function InvestigationView({
                   </div>
                   <div>
                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                      Why Did AI Flag It? (AI ने इसे क्यों पकड़ा?)
+                      Why Did AI Flag It?
                     </h3>
                     <span className="text-[10px] text-slate-400 font-medium">Machine Learning Reasoning</span>
                   </div>
@@ -676,7 +816,7 @@ export function InvestigationView({
                   </div>
                   <div>
                     <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                      What Is The Risk? (संभावित खतरा क्या है?)
+                      What Is The Risk?
                     </h3>
                     <span className="text-[10px] text-slate-400 font-medium">Impact Assessment</span>
                   </div>
@@ -699,7 +839,7 @@ export function InvestigationView({
                     </div>
                     <div>
                       <h3 className="text-xs font-black text-slate-900 uppercase tracking-wider">
-                        Immediate Action (तुरंत क्या समाधान करें?)
+                        Immediate Containment Action
                       </h3>
                       <span className="text-[10px] text-slate-400 font-medium">Instant Containment</span>
                     </div>
@@ -739,7 +879,7 @@ export function InvestigationView({
                       </span>
                     </div>
                     <p className="text-[11px] text-emerald-700 leading-snug">
-                      🔒 Attacker IP <strong>{incident.sourceIp}</strong> ब्लॉक है। अगर attacker दोबारा पैकेट्स भेजता है, तो सिस्टम उन्हें बिना अलार्म बजाए पेरीमीटर पर ही चुपचाप <strong>DROP</strong> कर देगा!
+                      🔒 Attacker IP <strong>{incident.sourceIp}</strong> is blocked. Any repeated packets from this source will be silently <strong>DROPPED</strong> at the perimeter firewall without triggering alert noise.
                     </p>
                   </div>
                 )}
@@ -972,7 +1112,7 @@ export function InvestigationView({
                   CyberSentinel RAG Copilot (Live Incident Assistant)
                 </h3>
                 <p className="text-[11px] text-slate-500">
-                  Ask questions in plain English or Hindi. Grounded in incident {incident.id} and MITRE ATT&CK STIX vector store.
+                  Ask questions in plain English. Grounded in incident {incident.id} and MITRE ATT&CK STIX vector store.
                 </p>
               </div>
             </div>
@@ -981,7 +1121,7 @@ export function InvestigationView({
           {/* Quick Prompt Suggestions */}
           <div className="flex flex-wrap gap-2">
             {[
-              "सरल हिंदी में समझाओ क्या हमला हुआ है?",
+              "Explain what this attack did in plain English",
               "How do I block this attacker in Windows Firewall?",
               "Why did the Random Forest model flag this attack?",
               "What danger does this attack have on port 8000?",
@@ -1004,7 +1144,7 @@ export function InvestigationView({
               <div className="py-12 text-center space-y-2 text-slate-400">
                 <Bot className="w-8 h-8 mx-auto text-slate-300" />
                 <p className="text-xs font-medium">
-                  Copilot is ready. Ask any question in Hindi or English about this incident.
+                  Copilot is ready. Ask any question about this incident.
                 </p>
               </div>
             ) : (

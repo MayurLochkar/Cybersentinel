@@ -122,9 +122,7 @@ export function DashboardLayout({
 }) {
   const [activeTab, setActiveTab] = useState<NavTab>(initialTab);
   const [showHowItWorks, setShowHowItWorks] = useState<boolean>(false);
-  const [selectedIncident, setSelectedIncident] = useState<Incident>(
-    CYBER_DATA.recentIncidents[0]
-  );
+  const [selectedIncident, setSelectedIncident] = useState<Incident | null>(null);
   const [reportIncidentId, setReportIncidentId] = useState("INC-1024");
 
   useEffect(() => {
@@ -142,6 +140,7 @@ export function DashboardLayout({
             setSelectedIncident(buildIncidentFromApiAlert(prioritized));
             setReportIncidentId(prioritized.incident_id);
           } else {
+            setSelectedIncident(null);
             setIncidentSubView("list");
           }
         }
@@ -377,7 +376,7 @@ export function DashboardLayout({
                 />
               )}
 
-              {activeTab === "incidents" && incidentSubView === "detail" && (
+              {activeTab === "incidents" && incidentSubView === "detail" && selectedIncident && (
                 <AlertDetailsView
                   incident={selectedIncident}
                   onStartInvestigation={() => setActiveTab("investigation")}
@@ -391,8 +390,9 @@ export function DashboardLayout({
               {activeTab === "investigation" && (
                 <InvestigationView
                   incident={selectedIncident}
-                  onGenerateReport={() => handleViewReport(selectedIncident.id)}
-                  onNavigateTab={(tab) => setActiveTab(tab as NavTab)}
+                  onGenerateReport={() => selectedIncident && handleViewReport(selectedIncident.id)}
+                  onNavigateTab={(tab) => handleSelectTab(tab as NavTab)}
+                  onLoadSampleIncident={() => setSelectedIncident(CYBER_DATA.recentIncidents[0])}
                 />
               )}
 

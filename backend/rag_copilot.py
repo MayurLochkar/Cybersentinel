@@ -287,18 +287,27 @@ def run_llm_or_deterministic(prompt_context: str, system_prompt: str) -> tuple[O
     if gemini_key:
         try:
             import requests
-            model = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite")
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
-            headers = {"Content-Type": "application/json"}
-            combined_prompt = f"{system_prompt}\n\nContext and Incident Telemetry:\n{prompt_context}\n\nAnalyst Response:"
-            payload = {
-                "contents": [{"parts": [{"text": combined_prompt}]}]
-            }
-            res = requests.post(url, headers=headers, json=payload, timeout=timeout_sec)
-            if res.status_code == 200:
-                data = res.json()
-                text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                return (text, f"Google Gemini ({model})")
+            candidate_models = [
+                os.getenv("GEMINI_MODEL", "gemini-1.5-flash"),
+                "gemini-1.5-flash",
+                "gemini-2.0-flash",
+            ]
+            seen_models = set()
+            for model in candidate_models:
+                if model in seen_models:
+                    continue
+                seen_models.add(model)
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
+                headers = {"Content-Type": "application/json"}
+                combined_prompt = f"{system_prompt}\n\nContext and Incident Telemetry:\n{prompt_context}\n\nAnalyst Response:"
+                payload = {
+                    "contents": [{"parts": [{"text": combined_prompt}]}]
+                }
+                res = requests.post(url, headers=headers, json=payload, timeout=timeout_sec)
+                if res.status_code == 200:
+                    data = res.json()
+                    text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    return (text, f"Google Gemini ({model})")
         except Exception:
             pass
 

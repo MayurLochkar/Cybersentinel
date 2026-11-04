@@ -1,0 +1,28 @@
+{
+  "updated_at": "2026-11-04T07:07:26.265955+00:00",
+  "total_dropped_packets": 1,
+  "blocked_ips": {
+    "192.168.29.252": {
+      "ip": "192.168.29.252",
+      "status": "BLOCKED",
+      "blocked_at": "2026-11-03T09:20:26.185230+00:00",
+      "reason": "AI Containment for incident INC-LIVE-10311117-C1FD68",
+      "incident_id": "INC-LIVE-10311117-C1FD68",
+      "packets_dropped": 0,
+      "last_dropped_at": null,
+      "os_rule_applied": false,
+      "os_rule_msg": "User permission required for netsh: Elevation needed"
+    },
+    "10.156.238.127": {
+      "ip": "10.156.238.127",
+      "status": "BLOCKED",
+      "blocked_at": "2026-11-04T07:07:23.929258+00:00",
+      "reason": "Quarantined via Alerts Matrix",
+      "incident_id": null,
+      "packets_dropped": 0,
+      "last_dropped_at": null,
+      "os_rule_applied": false,
+      "os_rule_msg": "User permission required for netsh: Elevation needed"
+    }
+  }
+}
